@@ -19,6 +19,8 @@ class gdax (Exchange):
             'name': 'GDAX',
             'countries': 'US',
             'rateLimit': 1000,
+            'userAgent': self.userAgents['chrome'],
+            # obsolete metainfo interface
             'hasCORS': True,
             'hasFetchOHLCV': True,
             'hasDeposit': True,
@@ -27,6 +29,17 @@ class gdax (Exchange):
             'hasFetchOrders': True,
             'hasFetchOpenOrders': True,
             'hasFetchClosedOrders': True,
+            # new metainfo interface
+            'has': {
+                'CORS': True,
+                'fetchOHLCV': True,
+                'deposit': True,
+                'withdraw': True,
+                'fetchOrder': True,
+                'fetchOrders': True,
+                'fetchOpenOrders': True,
+                'fetchClosedOrders': True,
+            },
             'timeframes': {
                 '1m': 60,
                 '5m': 300,
@@ -47,6 +60,10 @@ class gdax (Exchange):
                 'api': 'https://api.gdax.com',
                 'www': 'https://www.gdax.com',
                 'doc': 'https://docs.gdax.com',
+                'fees': [
+                    'https://www.gdax.com/fees',
+                    'https://support.gdax.com/customer/en/portal/topics/939402-depositing-and-withdrawing-funds/articles',
+                ],
             },
             'requiredCredentials': {
                 'apiKey': True,
@@ -102,8 +119,30 @@ class gdax (Exchange):
             },
             'fees': {
                 'trading': {
+                    'tierBased': True,  # complicated tier system per coin
+                    'percentage': True,
                     'maker': 0.0,
-                    'taker': 0.25 / 100,
+                    'taker': 0.30 / 100,  # worst-case scenario: https://www.gdax.com/fees/BTC-USD
+                },
+                'funding': {
+                    'tierBased': False,
+                    'percentage': False,
+                    'withdraw': {
+                        'BCH': 0,
+                        'BTC': 0,
+                        'LTC': 0,
+                        'ETH': 0,
+                        'EUR': 0.15,
+                        'USD': 25,
+                    },
+                    'deposit': {
+                        'BCH': 0,
+                        'BTC': 0,
+                        'LTC': 0,
+                        'ETH': 0,
+                        'EUR': 0.15,
+                        'USD': 10,
+                    },
                 },
             },
         })
@@ -141,6 +180,7 @@ class gdax (Exchange):
             taker = self.fees['trading']['taker']
             if (base == 'ETH') or (base == 'LTC'):
                 taker = 0.003
+            active = market['status'] == 'online'
             result.append(self.extend(self.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
@@ -150,6 +190,7 @@ class gdax (Exchange):
                 'precision': precision,
                 'limits': limits,
                 'taker': taker,
+                'active': active,
             }))
         return result
 
@@ -202,7 +243,7 @@ class gdax (Exchange):
             'open': None,
             'close': None,
             'first': None,
-            'last': None,
+            'last': self.safe_float(ticker, 'price'),
             'change': None,
             'percentage': None,
             'average': None,
@@ -263,10 +304,10 @@ class gdax (Exchange):
             'granularity': granularity,
         }
         if since:
-            request['start'] = self.iso8601(since)
+            request['start'] = self.YmdHMS(since)
             if not limit:
                 limit = 200  # max = 200
-            request['end'] = self.iso8601(limit * granularity * 1000 + since)
+            request['end'] = self.YmdHMS(self.sum(limit * granularity * 1000, since))
         response = await self.publicGetProductsIdCandles(self.extend(request, params))
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
@@ -274,7 +315,7 @@ class gdax (Exchange):
         response = self.publicGetTime()
         return self.parse8601(response['iso'])
 
-    def get_order_status(self, status):
+    def parse_order_status(self, status):
         statuses = {
             'pending': 'open',
             'active': 'open',
@@ -290,7 +331,7 @@ class gdax (Exchange):
         if not market:
             if order['product_id'] in self.markets_by_id:
                 market = self.markets_by_id[order['product_id']]
-        status = self.get_order_status(order['status'])
+        status = self.parse_order_status(order['status'])
         price = self.safe_float(order, 'price')
         amount = self.safe_float(order, 'size')
         filled = self.safe_float(order, 'filled_size')
@@ -407,7 +448,7 @@ class gdax (Exchange):
             'id': response['id'],
         }
 
-    async def withdraw(self, currency, amount, address, params={}):
+    async def withdraw(self, currency, amount, address, tag=None, params={}):
         await self.load_markets()
         request = {
             'currency': currency,
@@ -459,7 +500,7 @@ class gdax (Exchange):
 
     def handle_errors(self, code, reason, url, method, headers, body):
         if code == 400:
-            if body[0] == "{":
+            if body[0] == '{':
                 response = json.loads(body)
                 message = response['message']
                 if message.find('price too small') >= 0:

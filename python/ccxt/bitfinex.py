@@ -7,9 +7,11 @@ import math
 import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
+from ccxt.base.errors import DDoSProtection
 
 
 class bitfinex (Exchange):
@@ -18,7 +20,7 @@ class bitfinex (Exchange):
         return self.deep_extend(super(bitfinex, self).describe(), {
             'id': 'bitfinex',
             'name': 'Bitfinex',
-            'countries': 'US',
+            'countries': 'VG',
             'version': 'v1',
             'rateLimit': 1500,
             'hasCORS': False,
@@ -129,26 +131,106 @@ class bitfinex (Exchange):
             },
             'fees': {
                 'trading': {
+                    'tierBased': True,
+                    'percentage': True,
                     'maker': 0.1 / 100,
                     'taker': 0.2 / 100,
+                    'tiers': {
+                        'taker': [
+                            [0, 0.2 / 100],
+                            [500000, 0.2 / 100],
+                            [1000000, 0.2 / 100],
+                            [2500000, 0.2 / 100],
+                            [5000000, 0.2 / 100],
+                            [7500000, 0.2 / 100],
+                            [10000000, 0.18 / 100],
+                            [15000000, 0.16 / 100],
+                            [20000000, 0.14 / 100],
+                            [25000000, 0.12 / 100],
+                            [30000000, 0.1 / 100],
+                        ],
+                        'maker': [
+                            [0, 0.1 / 100],
+                            [500000, 0.08 / 100],
+                            [1000000, 0.06 / 100],
+                            [2500000, 0.04 / 100],
+                            [5000000, 0.02 / 100],
+                            [7500000, 0],
+                            [10000000, 0],
+                            [15000000, 0],
+                            [20000000, 0],
+                            [25000000, 0],
+                            [30000000, 0],
+                        ],
+                    },
+                },
+                'funding': {
+                    'tierBased': False,  # True for tier-based/progressive
+                    'percentage': False,  # fixed commission
+                    'deposit': {
+                        'BTC': 0.0005,
+                        'IOTA': 0.5,
+                        'ETH': 0.01,
+                        'BCH': 0.01,
+                        'LTC': 0.1,
+                        'EOS': 0.1,
+                        'XMR': 0.04,
+                        'SAN': 0.1,
+                        'DASH': 0.01,
+                        'ETC': 0.01,
+                        'XPR': 0.02,
+                        'YYW': 0.1,
+                        'NEO': 0,
+                        'ZEC': 0.1,
+                        'BTG': 0,
+                        'OMG': 0.1,
+                        'DATA': 1,
+                        'QASH': 1,
+                        'ETP': 0.01,
+                        'QTUM': 0.01,
+                        'EDO': 0.5,
+                        'AVT': 0.5,
+                        'USDT': 0,
+                    },
+                    'withdraw': {
+                        'BTC': 0.0005,
+                        'IOTA': 0.5,
+                        'ETH': 0.01,
+                        'BCH': 0.01,
+                        'LTC': 0.1,
+                        'EOS': 0.1,
+                        'XMR': 0.04,
+                        'SAN': 0.1,
+                        'DASH': 0.01,
+                        'ETC': 0.01,
+                        'XPR': 0.02,
+                        'YYW': 0.1,
+                        'NEO': 0,
+                        'ZEC': 0.1,
+                        'BTG': 0,
+                        'OMG': 0.1,
+                        'DATA': 1,
+                        'QASH': 1,
+                        'ETP': 0.01,
+                        'QTUM': 0.01,
+                        'EDO': 0.5,
+                        'AVT': 0.5,
+                        'USDT': 5,
+                    },
                 },
             },
         })
 
     def common_currency_code(self, currency):
-        # issue  #4 Bitfinex names Dash as DSH, instead of DASH
-        if currency == 'DSH':
-            return 'DASH'
-        if currency == 'QTM':
-            return 'QTUM'
-        if currency == 'BCC':
-            return 'CST_BCC'
-        if currency == 'BCU':
-            return 'CST_BCU'
-        # issue  #796
-        if currency == 'IOT':
-            return 'IOTA'
-        return currency
+        currencies = {
+            'DSH': 'DASH',  # Bitfinex names Dash as DSH, instead of DASH
+            'QTM': 'QTUM',
+            'BCC': 'CST_BCC',
+            'BCU': 'CST_BCU',
+            'IOT': 'IOTA',
+            'DAT': 'DATA',
+        }
+        return currencies[currency] if (currency in list(currencies.keys())) else currency
 
     def fetch_markets(self):
         markets = self.publicGetSymbolsDetails()
@@ -165,6 +247,20 @@ class bitfinex (Exchange):
                 'price': market['price_precision'],
                 'amount': market['price_precision'],
             }
+            limits = {
+                'amount': {
+                    'min': float(market['minimum_order_size']),
+                    'max': float(market['maximum_order_size']),
+                },
+                'price': {
+                    'min': math.pow(10, -precision['price']),
+                    'max': math.pow(10, precision['price']),
+                },
+            }
+            limits['cost'] = {
+                'min': limits['amount']['min'] * limits['price']['min'],
+                'max': None,
+            }
             result.append(self.extend(self.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
@@ -172,22 +268,11 @@ class bitfinex (Exchange):
                 'quote': quote,
                 'baseId': baseId,
                 'quoteId': quoteId,
-                'info': market,
+                'active': True,
                 'precision': precision,
-                'limits': {
-                    'amount': {
-                        'min': float(market['minimum_order_size']),
-                        'max': float(market['maximum_order_size']),
-                    },
-                    'price': {
-                        'min': math.pow(10, -precision['price']),
-                        'max': math.pow(10, precision['price']),
-                    },
-                    'cost': {
-                        'min': None,
-                        'max': None,
-                    },
-                },
+                'limits': limits,
+                'lot': math.pow(10, -precision['amount']),
+                'info': market,
             }))
         return result
 
@@ -364,7 +449,8 @@ class bitfinex (Exchange):
         orderType = order['type']
         exchange = orderType.find('exchange ') >= 0
         if exchange:
-            prefix, orderType = order['type'].split(' ')
+            parts = order['type'].split(' ')
+            orderType = parts[1]
         timestamp = int(float(order['timestamp']) * 1000)
         result = {
             'info': order,
@@ -374,7 +460,7 @@ class bitfinex (Exchange):
             'symbol': symbol,
             'type': orderType,
             'side': side,
-            'price': float(order['price']),
+            'price': self.safe_float(order, 'price'),
             'average': float(order['avg_execution_price']),
             'amount': float(order['original_amount']),
             'remaining': float(order['remaining_amount']),
@@ -400,7 +486,8 @@ class bitfinex (Exchange):
         response = self.privatePostOrdersHist(self.extend(request, params))
         orders = self.parse_orders(response, None, since, limit)
         if symbol:
-            return self.filter_by(orders, 'symbol', symbol)
+            orders = self.filter_by(orders, 'symbol', symbol)
+        orders = self.filter_by(orders, 'status', 'closed')
         return orders
 
     def fetch_order(self, id, symbol=None, params={}):
@@ -427,6 +514,7 @@ class bitfinex (Exchange):
         request = {
             'symbol': v2id,
             'timeframe': self.timeframes[timeframe],
+            'sort': 1,
         }
         if limit:
             request['limit'] = limit
@@ -491,7 +579,7 @@ class bitfinex (Exchange):
             'info': response,
         }
 
-    def withdraw(self, currency, amount, address, params={}):
+    def withdraw(self, currency, amount, address, tag=None, params={}):
         name = self.get_currency_name(currency)
         request = {
             'withdraw_type': name,
@@ -499,6 +587,8 @@ class bitfinex (Exchange):
             'amount': str(amount),
             'address': address,
         }
+        if tag:
+            request['payment_id'] = tag
         responses = self.privatePostWithdraw(self.extend(request, params))
         response = responses[0]
         return {
@@ -542,19 +632,35 @@ class bitfinex (Exchange):
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
     def handle_errors(self, code, reason, url, method, headers, body):
-        if code == 400:
-            if body[0] == "{":
+        if len(body) < 2:
+            return
+        if code >= 400:
+            if body[0] == '{':
                 response = json.loads(body)
-                message = response['message']
-                if message.find('Key price should be a decimal number') >= 0:
-                    raise InvalidOrder(self.id + ' ' + message)
-                elif message.find('Invalid order: not enough exchange balance') >= 0:
-                    raise InsufficientFunds(self.id + ' ' + message)
-                elif message.find('Invalid order') >= 0:
-                    raise InvalidOrder(self.id + ' ' + message)
-                elif message.find('Order could not be cancelled.') >= 0:
-                    raise OrderNotFound(self.id + ' ' + message)
-            raise ExchangeError(self.id + ' ' + body)
+                if 'message' in response:
+                    message = response['message']
+                    error = self.id + ' ' + message
+                    if message.find('Key price should be a decimal number') >= 0:
+                        raise InvalidOrder(error)
+                    elif message.find('Invalid order: not enough exchange balance') >= 0:
+                        raise InsufficientFunds(error)
+                    elif message == 'Order could not be cancelled.':
+                        raise OrderNotFound(error)
+                    elif message.find('Invalid order') >= 0:
+                        raise InvalidOrder(error)
+                    elif message == 'Order price must be positive.':
+                        raise InvalidOrder(error)
+                    elif message.find('Key amount should be a decimal number') >= 0:
+                        raise InvalidOrder(error)
+                    elif message == 'No such order found.':
+                        raise OrderNotFound(error)
+                    elif message == 'Could not find a key matching the given X-BFX-APIKEY.':
+                        raise AuthenticationError(error)
+                elif 'error' in response:
+                    code = response['error']
+                    error = self.id + ' ' + code
+                    if code == 'ERR_RATE_LIMIT':
+                        raise DDoSProtection(error)
 
     def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
         response = self.fetch2(path, api, method, params, headers, body)

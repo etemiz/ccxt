@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class gemini extends Exchange {
 
     public function describe () {
@@ -13,12 +11,27 @@ class gemini extends Exchange {
             'countries' => 'US',
             'rateLimit' => 1500, // 200 for private API
             'version' => 'v1',
+            // obsolete metainfo interface
             'hasCORS' => false,
+            'hasWithdraw' => true,
+            // new metainfo interface
+            'has' => array (
+                'CORS' => false,
+                'withdraw' => true,
+            ),
             'urls' => array (
                 'logo' => 'https://user-images.githubusercontent.com/1294454/27816857-ce7be644-6096-11e7-82d6-3c257263229c.jpg',
                 'api' => 'https://api.gemini.com',
                 'www' => 'https://gemini.com',
-                'doc' => 'https://docs.gemini.com/rest-api',
+                'doc' => array (
+                    'https://docs.gemini.com/rest-api',
+                    'https://docs.sandbox.gemini.com',
+                ),
+                'test' => 'https://api.sandbox.gemini.com',
+                'fees' => array (
+                    'https://gemini.com/fee-schedule/',
+                    'https://gemini.com/transfer-fees/',
+                ),
             ),
             'api' => array (
                 'public' => array (
@@ -67,7 +80,7 @@ class gemini extends Exchange {
                 'base' => $base,
                 'quote' => $quote,
                 'info' => $market,
-                'taker' => 0.0025
+                'taker' => 0.0025,
             );
         }
         return $result;
@@ -156,7 +169,7 @@ class gemini extends Exchange {
 
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
         $this->load_markets();
-        if ($type == 'market')
+        if ($type === 'market')
             throw new ExchangeError ($this->id . ' allows limit orders only');
         $nonce = $this->nonce ();
         $order = array (
@@ -179,10 +192,24 @@ class gemini extends Exchange {
         return $this->privatePostCancelOrder (array ( 'order_id' => $id ));
     }
 
+    public function withdraw ($code, $amount, $address, $tag = null, $params = array ()) {
+        $this->load_markets();
+        $currency = $this->currency ($code);
+        $response = $this->privatePostWithdrawCurrency (array_merge (array (
+            'currency' => $currency['id'],
+            'amount' => $amount,
+            'address' => $address,
+        ), $params));
+        return array (
+            'info' => $response,
+            'id' => $this->safe_string($response, 'txHash'),
+        );
+    }
+
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $url = '/' . $this->version . '/' . $this->implode_params($path, $params);
         $query = $this->omit ($params, $this->extract_params($path));
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($query)
                 $url .= '?' . $this->urlencode ($query);
         } else {
@@ -198,7 +225,7 @@ class gemini extends Exchange {
             $headers = array (
                 'Content-Type' => 'text/plain',
                 'X-GEMINI-APIKEY' => $this->apiKey,
-                'X-GEMINI-PAYLOAD' => $payload,
+                'X-GEMINI-PAYLOAD' => $this->decode ($payload),
                 'X-GEMINI-SIGNATURE' => $signature,
             );
         }
@@ -208,11 +235,9 @@ class gemini extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('result', $response))
-            if ($response['result'] == 'error')
+        if (is_array ($response) && array_key_exists ('result', $response))
+            if ($response['result'] === 'error')
                 throw new ExchangeError ($this->id . ' ' . $this->json ($response));
         return $response;
     }
 }
-
-?>

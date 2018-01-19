@@ -8,14 +8,16 @@ const verbose = process.argv.includes ('--verbose')
 //-----------------------------------------------------------------------------
 
 const ccxt      = require ('../../ccxt.js')
-const fs        = require ('fs')
-const asTable   = require ('as-table')
-const util      = require ('util')
-const log       = require ('ololog').configure ({ locate: false })
+    , fs        = require ('fs')
+    , path      = require ('path')
+    , asTable   = require ('as-table')
+    , util      = require ('util')
+    , log       = require ('ololog').configure ({ locate: false })
+    , { ExchangeError, NetworkError } = ccxt
 
 //-----------------------------------------------------------------------------
 
-require ('ansicolor').nice;
+require ('ansicolor').nice
 
 //-----------------------------------------------------------------------------
 
@@ -29,12 +31,12 @@ const exchange = new (ccxt)[exchangeId] ({ verbose })
 //-----------------------------------------------------------------------------
 
 // set up keys and settings, if any
-const keysGlobal = 'keys.json'
-const keysLocal = 'keys.local.json'
+const keysGlobal = path.resolve ('keys.json')
+const keysLocal = path.resolve ('keys.local.json')
 
 let globalKeysFile = fs.existsSync (keysGlobal) ? keysGlobal : false
 let localKeysFile = fs.existsSync (keysLocal) ? keysLocal : globalKeysFile
-let settings = localKeysFile ? (require ('../../' + localKeysFile)[exchangeId] || {}) : {}
+let settings = localKeysFile ? (require (localKeysFile)[exchangeId] || {}) : {}
 
 Object.assign (exchange, settings)
 
@@ -67,10 +69,36 @@ async function main () {
 
     } else {
 
-        let args = params.map (param =>
-            param.match (/[a-zA-Z]/g) ? param : parseFloat (param))
+        let args = params.map (param => {
+            if (param[0] === '{')
+                return JSON.parse (param)
+            return param.match (/[a-zA-Z]/g) ? param : parseFloat (param)
+        })
 
-        console.log (await exchange[methodName] (... args))
+        if (typeof exchange[methodName] == 'function') {
+            try {
+                log (await exchange[methodName] (... args))
+            } catch (e) {
+
+                if (e instanceof ExchangeError) {
+
+                    log.red (e.constructor.name, e.message)
+
+                } else if (e instanceof NetworkError) {
+
+                    log.yellow (e.constructor.name, e.message)
+
+                }
+
+                log.dim ('---------------------------------------------------')
+
+                // rethrow for call-stack // other errors
+                throw e
+
+            }
+        } else {
+            log (exchange[methodName])
+        }
 
     }
 }

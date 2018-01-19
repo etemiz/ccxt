@@ -2,18 +2,20 @@
 
 //-----------------------------------------------------------------------------
 
-const isNode    = (typeof window === 'undefined')
+const isNode    = (typeof window === 'undefined') && !(typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope)
     , functions = require ('./functions')
     , throttle  = require ('./throttle')
-    , fetch     = require ('fetch-ponyfill')().fetch
+    , defaultFetch = isNode ? require ('fetch-ponyfill')().fetch : fetch
     , Market    = require ('./Market')
 
 const { deepExtend
       , extend
       , sleep
       , timeout
+      , flatten
       , indexBy
       , sortBy
+      , groupBy
       , aggregate
       , uuid
       , precisionFromString } = functions
@@ -57,22 +59,24 @@ module.exports = class Exchange {
 
         // this.initRestRateLimiter ()
 
-        if (isNode) {
-            this.userAgent = {
-                'User-Agent': 'ccxt/' + Exchange.ccxtVersion +
-                    ' (+https://github.com/ccxt/ccxt)' +
-                    ' Node.js/' + this.nodeVersion + ' (JavaScript)'
-            }
-        }
+        // if (isNode) {
+        //     this.userAgent = {
+        //         'User-Agent': 'ccxt/' + Exchange.ccxtVersion +
+        //             ' (+https://github.com/ccxt/ccxt)' +
+        //             ' Node.js/' + this.nodeVersion + ' (JavaScript)'
+        //     }
+        // }
 
         this.userAgents = {
             'chrome': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36',
+            'chrome39': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.71 Safari/537.36',
         }
 
         this.headers = {}
 
         // prepended to URL, like https://proxy.com/https://exchange.com/api...
         this.proxy = ''
+        this.origin = '*' // CORS origin
 
         this.iso8601          = timestamp => new Date (timestamp).toISOString ()
         this.parse8601        = x => Date.parse (((x.indexOf ('+') >= 0) || (x.slice (-1) == 'Z')) ? x : (x + 'Z'))
@@ -89,11 +93,14 @@ module.exports = class Exchange {
         this.substituteCommonCurrencyCodes = true  // reserved
         this.parseBalanceFromOpenOrders    = false // some exchanges return balance updates from order API endpoints
 
+        // do not delete this line, it is needed for users to be able to define their own fetchImplementation
+        this.fetchImplementation = defaultFetch
+
         this.timeout          = 10000 // milliseconds
         this.verbose          = false
         this.debug            = false
         this.journal          = 'debug.json'
-        this.userAgent        = false
+        this.userAgent        = undefined
         this.twofa            = false // two-factor authentication (2FA)
         this.timeframes       = undefined
         this.hasPublicAPI         = true
@@ -111,10 +118,17 @@ module.exports = class Exchange {
         this.hasFetchOrders       = false
         this.hasFetchTicker       = true
         this.hasFetchTickers      = false
+        this.hasFetchBidsAsks     = false
         this.hasFetchTrades       = true
         this.hasWithdraw          = false
         this.hasCreateOrder       = this.hasPrivateAPI
         this.hasCancelOrder       = this.hasPrivateAPI
+
+        this.apiKey   = undefined
+        this.secret   = undefined
+        this.uid      = undefined
+        this.login    = undefined
+        this.password = undefined
 
         this.requiredCredentials = {
             'apiKey':   true,
@@ -124,6 +138,7 @@ module.exports = class Exchange {
             'password': false,
         }
 
+        this.exceptions = {}
         this.balance    = {}
         this.orderbooks = {}
         this.tickers    = {}
@@ -135,9 +150,13 @@ module.exports = class Exchange {
         this.last_http_response = undefined
         this.last_json_response = undefined
 
+        this.arrayConcat = (a, b) => a.concat (b)
+
         // TODO: generate
+
         this.market_id                   = this.marketId
         this.market_ids                  = this.marketIds
+        this.array_concat                = this.arrayConcat
         this.implode_params              = this.implodeParams
         this.extract_params              = this.extractParams
         this.fetch_balance               = this.fetchBalance
@@ -146,6 +165,7 @@ module.exports = class Exchange {
         this.fetch_total_balance         = this.fetchTotalBalance
         this.fetch_l2_order_book         = this.fetchL2OrderBook
         this.fetch_order_book            = this.fetchOrderBook
+        this.fetch_bids_asks             = this.fetchBidsAsks
         this.fetch_tickers               = this.fetchTickers
         this.fetch_ticker                = this.fetchTicker
         this.fetch_trades                = this.fetchTrades
@@ -178,21 +198,25 @@ module.exports = class Exchange {
         this.common_currency_code        = this.commonCurrencyCode
         this.price_to_precision          = this.priceToPrecision
         this.amount_to_precision         = this.amountToPrecision
+        this.amount_to_string            = this.amountToString
         this.fee_to_precision            = this.feeToPrecision
         this.cost_to_precision           = this.costToPrecision
         this.precisionFromString         = precisionFromString
         this.precision_from_string       = precisionFromString
         this.truncate                    = functions.truncate
+        this.truncate_to_string          = functions.truncate_to_string
         this.uuid                        = uuid
 
         // API methods metainfo
         this.has = {
             'cancelOrder': this.hasPrivateAPI,
+            'createDepositAddress': false,
             'createOrder': this.hasPrivateAPI,
             'deposit': false,
             'fetchBalance': this.hasPrivateAPI,
             'fetchClosedOrders': false,
             'fetchCurrencies': false,
+            'fetchDepositAddress': false,
             'fetchMarkets': true,
             'fetchMyTrades': false,
             'fetchOHLCV': false,
@@ -202,6 +226,7 @@ module.exports = class Exchange {
             'fetchOrders': false,
             'fetchTicker': true,
             'fetchTickers': false,
+            'fetchBidsAsks': false,
             'fetchTrades': true,
             'withdraw': false,
         }
@@ -247,6 +272,8 @@ module.exports = class Exchange {
 
     initRestRateLimiter () {
 
+        const fetchImplementation = this.fetchImplementation
+
         this.tokenBucket = this.extend ({
             refillRate:  1 / this.rateLimit,
             delay:       1,
@@ -260,7 +287,7 @@ module.exports = class Exchange {
         this.executeRestRequest = function (url, method = 'GET', headers = undefined, body = undefined) {
 
             let promise =
-                fetch (url, { 'method': method, 'headers': headers, 'body': body, 'agent': this.tunnelAgent || null, timeout: this.timeout})
+                fetchImplementation (url, { 'method': method, 'headers': headers, 'body': body, 'agent': this.tunnelAgent || null, timeout: this.timeout})
                     .catch (e => {
                         if (isNode)
                             throw new ExchangeNotAvailable ([ this.id, method, url, e.type, e.message ].join (' '))
@@ -335,12 +362,14 @@ module.exports = class Exchange {
         if (typeof this.proxy == 'function') {
 
             url = this.proxy (url)
-            headers = extend ({ 'Origin': '*' }, headers)
+            if (isNode)
+                headers = extend ({ 'Origin': this.origin }, headers)
 
         } else if (typeof this.proxy == 'string') {
 
             if (this.proxy.length)
-                headers = extend ({ 'Origin': '*' }, headers)
+                if (isNode)
+                    headers = extend ({ 'Origin': this.origin }, headers)
 
             url = this.proxy + url
         }
@@ -371,19 +400,17 @@ module.exports = class Exchange {
     }
 
     defaultErrorHandler (code, reason, url, method, headers, body) {
-        if (this.verbose)
-            console.log (this.id, method, url, code, reason, body ? ("\nResponse:\n" + body) : '')
         if ((code >= 200) && (code <= 300))
             return body
         let error = undefined
         this.last_http_response = body
         let details = body
-        let match = body.match ('\<title\>([^<]+)')
+        let match = body.match (/\<title\>([^<]+)/i)
         if (match)
             details = match[1].trim ();
-        if ([ 429 ].includes (code)) {
+        if ([ 418, 429 ].includes (code)) {
             error = DDoSProtection
-        } else if ([ 404, 409, 422, 500, 501, 502, 520, 521, 522, 525 ].includes (code)) {
+        } else if ([ 404, 409, 500, 501, 502, 520, 521, 522, 525 ].includes (code)) {
             error = ExchangeNotAvailable
         } else if ([ 400, 403, 405, 503, 530 ].includes (code)) {
             let ddosProtection = body.match (/cloudflare|incapsula/i)
@@ -412,12 +439,15 @@ module.exports = class Exchange {
 
     handleRestErrors (response, url, method = 'GET', headers = undefined, body = undefined) {
 
-        if (typeof response == 'string')
+        if (typeof response === 'string')
             return response
 
         return response.text ().then (text => {
 
             const args = [ response.status, response.statusText, url, method, headers, text ]
+
+            if (this.verbose)
+                console.log (this.id, method, url, response.status, response.statusText, headers, text ? ("\nResponse:\n" + text) : '')
 
             this.handleErrors (...args)
             return this.defaultErrorHandler (...args)
@@ -431,7 +461,7 @@ module.exports = class Exchange {
             this.last_http_response = response
             if (this.parseJsonResponse) {
                 this.last_json_response =
-                    ((typeof response == 'string') && (response.length > 1)) ?
+                    ((typeof response === 'string') && (response.length > 1)) ?
                         JSON.parse (response) : response
                 return this.last_json_response
             }
@@ -479,16 +509,24 @@ module.exports = class Exchange {
                     .map (market => ({
                         id: market.baseId || market.base,
                         code: market.base,
+                        precision: market.precision ? (market.precision.base || market.precision.amount) : 8,
                     }))
             const quoteCurrencies =
                 values.filter (market => 'quote' in market)
                     .map (market => ({
                         id: market.quoteId || market.quote,
                         code: market.quote,
+                        precision: market.precision ? (market.precision.quote || market.precision.price) : 8,
                     }))
-            const currencies = sortBy (baseCurrencies.concat (quoteCurrencies), 'code')
-            this.currencies = deepExtend (indexBy (currencies, 'code'), this.currencies)
+            const allCurrencies = baseCurrencies.concat (quoteCurrencies)
+            const groupedCurrencies = groupBy (allCurrencies, 'code')
+            const currencies = Object.keys (groupedCurrencies).map (code =>
+                groupedCurrencies[code].reduce ((previous, current) =>
+                    ((previous.precision > current.precision) ? previous : current), groupedCurrencies[code][0]))
+            const sortedCurrencies = sortBy (flatten (currencies), 'code')
+            this.currencies = deepExtend (indexBy (sortedCurrencies, 'code'), this.currencies)
         }
+        this.currencies_by_id = indexBy (this.currencies, 'id')
         return this.markets
     }
 
@@ -505,6 +543,10 @@ module.exports = class Exchange {
             currencies = await this.fetchCurrencies ()
         }
         return this.setMarkets (markets, currencies)
+    }
+
+    fetchBidsAsks (symbols = undefined, params = {}) {
+        throw new NotSupported (this.id + ' fetchBidsAsks not supported yet')
     }
 
     fetchTickers (symbols = undefined, params = {}) {
@@ -635,19 +677,19 @@ module.exports = class Exchange {
     async fetchL2OrderBook (symbol, params = {}) {
         let orderbook = await this.fetchOrderBook (symbol, params)
         return extend (orderbook, {
-            'bids': sortBy (aggregate (orderbook.bids), 0, true),
-            'asks': sortBy (aggregate (orderbook.asks), 0),
+            'bids': aggregate (orderbook.bids),
+            'asks': aggregate (orderbook.asks),
         })
     }
 
     parseOrderBook (orderbook, timestamp = undefined, bidsKey = 'bids', asksKey = 'asks', priceKey = 0, amountKey = 1) {
         timestamp = timestamp || this.milliseconds ();
         return {
-            'bids': (bidsKey in orderbook) ? this.parseBidsAsks (orderbook[bidsKey], priceKey, amountKey) : [],
-            'asks': (asksKey in orderbook) ? this.parseBidsAsks (orderbook[asksKey], priceKey, amountKey) : [],
+            'bids': sortBy ((bidsKey in orderbook) ? this.parseBidsAsks (orderbook[bidsKey], priceKey, amountKey) : [], 0, true),
+            'asks': sortBy ((asksKey in orderbook) ? this.parseBidsAsks (orderbook[asksKey], priceKey, amountKey) : [], 0),
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-        };
+        }
     }
 
     getCurrencyUsedOnOpenOrders (currency) {
@@ -691,7 +733,8 @@ module.exports = class Exchange {
                 balance[account][currency] = balance[currency][account]
             })
         })
-        return balance;
+
+        return balance
     }
 
     async fetchPartialBalance (part, params = {}) {
@@ -721,6 +764,7 @@ module.exports = class Exchange {
 
     parseTrades (trades, market = undefined, since = undefined, limit = undefined) {
         let result = Object.values (trades).map (trade => this.parseTrade (trade, market))
+        result = sortBy (result, 'timestamp', true)
         return this.filterBySinceLimit (result, since, limit)
     }
 
@@ -801,7 +845,11 @@ module.exports = class Exchange {
     }
 
     amountToPrecision (symbol, amount) {
-        return this.truncate(amount, this.markets[symbol].precision.amount)
+        return this.truncate (amount, this.markets[symbol].precision.amount)
+    }
+
+    amountToString (symbol, amount) {
+        return this.truncate_to_string (amount, this.markets[symbol].precision.amount)
     }
 
     amountToLots (symbol, amount) {

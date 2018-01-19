@@ -14,6 +14,7 @@ class huobipro (Exchange):
             'name': 'Huobi Pro',
             'countries': 'CN',
             'rateLimit': 2000,
+            'userAgent': self.userAgents['chrome39'],
             'version': 'v1',
             'accounts': None,
             'accountsById': None,
@@ -45,6 +46,7 @@ class huobipro (Exchange):
                 'api': 'https://api.huobi.pro',
                 'www': 'https://www.huobi.pro',
                 'doc': 'https://github.com/huobiapi/API_Docs/wiki/REST_api_reference',
+                'fees': 'https://www.huobi.pro/about/fee/',
             },
             'api': {
                 'market': {
@@ -85,6 +87,14 @@ class huobipro (Exchange):
                         'dw/withdraw-virtual/{id}/place',  # 确认申请虚拟币提现
                         'dw/withdraw-virtual/{id}/cancel',  # 申请取消提现虚拟币
                     ],
+                },
+            },
+            'fees': {
+                'trading': {
+                    'tierBased': False,
+                    'percentage': True,
+                    'maker': 0.002,
+                    'taker': 0.002,
                 },
             },
         })
@@ -186,7 +196,11 @@ class huobipro (Exchange):
             'symbol': market['id'],
             'type': 'step0',
         }, params))
-        return self.parse_order_book(response['tick'], response['tick']['ts'])
+        if 'tick' in response:
+            if not response['tick']:
+                raise ExchangeError(self.id + ' fetchOrderBook() returned empty response: ' + self.json(response))
+            return self.parse_order_book(response['tick'], response['tick']['ts'])
+        raise ExchangeError(self.id + ' fetchOrderBook() returned unrecognized response: ' + self.json(response))
 
     def fetch_ticker(self, symbol, params={}):
         self.load_markets()
@@ -321,7 +335,7 @@ class huobipro (Exchange):
 
     def parse_order_status(self, status):
         if status == 'partial-filled':
-            return 'partial'
+            return 'open'
         elif status == 'filled':
             return 'closed'
         elif status == 'canceled':

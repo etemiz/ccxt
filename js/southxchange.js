@@ -1,8 +1,9 @@
-"use strict";
+'use strict';
 
 //  ---------------------------------------------------------------------------
 
-const Exchange = require ('./base/Exchange')
+const Exchange = require ('./base/Exchange');
+let { ExchangeError } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -45,6 +46,14 @@ module.exports = class southxchange extends Exchange {
                     ],
                 },
             },
+            'fees': {
+                'trading': {
+                    'tierBased': false,
+                    'percentage': true,
+                    'maker': 0.2 / 100,
+                    'taker': 0.2 / 100,
+                },
+            },
         });
     }
 
@@ -71,6 +80,8 @@ module.exports = class southxchange extends Exchange {
     async fetchBalance (params = {}) {
         await this.loadMarkets ();
         let balances = await this.privatePostListBalances ();
+        if (!balances)
+            throw new ExchangeError (this.id + ' fetchBalance got an unrecognized response');
         let result = { 'info': balances };
         for (let b = 0; b < balances.length; b++) {
             let balance = balances[b];
@@ -187,7 +198,7 @@ module.exports = class southxchange extends Exchange {
             'type': side,
             'amount': amount,
         };
-        if (type == 'limit')
+        if (type === 'limit')
             order['limitPrice'] = price;
         let response = await this.privatePostPlaceOrder (this.extend (order, params));
         return {
@@ -203,7 +214,7 @@ module.exports = class southxchange extends Exchange {
         }, params));
     }
 
-    async withdraw (currency, amount, address, params = {}) {
+    async withdraw (currency, amount, address, tag = undefined, params = {}) {
         let response = await this.privatePostWithdraw (this.extend ({
             'currency': currency,
             'address': address,
@@ -218,7 +229,7 @@ module.exports = class southxchange extends Exchange {
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let url = this.urls['api'] + '/' + this.implodeParams (path, params);
         let query = this.omit (params, this.extractParams (path));
-        if (api == 'private') {
+        if (api === 'private') {
             this.checkRequiredCredentials ();
             let nonce = this.nonce ();
             query = this.extend ({

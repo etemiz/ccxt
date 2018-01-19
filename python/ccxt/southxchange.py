@@ -2,6 +2,7 @@
 
 from ccxt.base.exchange import Exchange
 import hashlib
+from ccxt.base.errors import ExchangeError
 
 
 class southxchange (Exchange):
@@ -43,6 +44,14 @@ class southxchange (Exchange):
                     ],
                 },
             },
+            'fees': {
+                'trading': {
+                    'tierBased': False,
+                    'percentage': True,
+                    'maker': 0.2 / 100,
+                    'taker': 0.2 / 100,
+                },
+            },
         })
 
     def fetch_markets(self):
@@ -66,6 +75,8 @@ class southxchange (Exchange):
     def fetch_balance(self, params={}):
         self.load_markets()
         balances = self.privatePostListBalances()
+        if not balances:
+            raise ExchangeError(self.id + ' fetchBalance got an unrecognized response')
         result = {'info': balances}
         for b in range(0, len(balances)):
             balance = balances[b]
@@ -186,7 +197,7 @@ class southxchange (Exchange):
             'orderCode': id,
         }, params))
 
-    def withdraw(self, currency, amount, address, params={}):
+    def withdraw(self, currency, amount, address, tag=None, params={}):
         response = self.privatePostWithdraw(self.extend({
             'currency': currency,
             'address': address,

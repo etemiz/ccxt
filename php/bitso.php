@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class bitso extends Exchange {
 
     public function describe () {
@@ -176,7 +174,7 @@ class bitso extends Exchange {
         $timestamp = $this->parse8601 ($trade['created_at']);
         $symbol = null;
         if (!$market) {
-            if (array_key_exists ('book', $trade))
+            if (is_array ($trade) && array_key_exists ('book', $trade))
                 $market = $this->markets_by_id[$trade['book']];
         }
         if ($market)
@@ -212,7 +210,7 @@ class bitso extends Exchange {
             'type' => $type,
             'major' => $this->amount_to_precision($symbol, $amount),
         );
-        if ($type == 'limit')
+        if ($type === 'limit')
             $order['price'] = $this->price_to_precision($symbol, $price);
         $response = $this->privatePostOrders (array_merge ($order, $params));
         return array (
@@ -229,7 +227,7 @@ class bitso extends Exchange {
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $query = '/' . $this->version . '/' . $this->implode_params($path, $params);
         $url = $this->urls['api'] . $query;
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($params)
                 $url .= '?' . $this->urlencode ($params);
         } else {
@@ -243,7 +241,7 @@ class bitso extends Exchange {
             $signature = $this->hmac ($this->encode ($request), $this->encode ($this->secret));
             $auth = $this->apiKey . ':' . $nonce . ':' . $signature;
             $headers = array (
-                'Authorization' => "Bitso " . $auth,
+                'Authorization' => 'Bitso ' . $auth,
                 'Content-Type' => 'application/json',
             );
         }
@@ -252,11 +250,9 @@ class bitso extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('success', $response))
+        if (is_array ($response) && array_key_exists ('success', $response))
             if ($response['success'])
                 return $response;
         throw new ExchangeError ($this->id . ' ' . $this->json ($response));
     }
 }
-
-?>

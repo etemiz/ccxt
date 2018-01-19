@@ -2,15 +2,13 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class coinmate extends Exchange {
 
     public function describe () {
         return array_replace_recursive (parent::describe (), array (
             'id' => 'coinmate',
             'name' => 'CoinMate',
-            'countries' => array ( 'GB', 'CZ' ), // UK, Czech Republic
+            'countries' => array ( 'GB', 'CZ', 'EU' ), // UK, Czech Republic
             'rateLimit' => 1000,
             'hasCORS' => true,
             'urls' => array (
@@ -72,11 +70,11 @@ class coinmate extends Exchange {
         $response = $this->privatePostBalances ();
         $balances = $response['data'];
         $result = array ( 'info' => $balances );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
-            if (array_key_exists ($currency, $balances)) {
+            if (is_array ($balances) && array_key_exists ($currency, $balances)) {
                 $account['free'] = $balances[$currency]['available'];
                 $account['used'] = $balances[$currency]['reserved'];
                 $account['total'] = $balances[$currency]['balance'];
@@ -165,7 +163,7 @@ class coinmate extends Exchange {
             $order['price'] = $price;
             $method .= $this->capitalize ($type);
         }
-        $response = $this->$method (self.extend ($order, $params));
+        $response = $this->$method (array_merge ($order, $params));
         return array (
             'info' => $response,
             'id' => (string) $response['data'],
@@ -201,11 +199,9 @@ class coinmate extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('error', $response))
+        if (is_array ($response) && array_key_exists ('error', $response))
             if ($response['error'])
                 throw new ExchangeError ($this->id . ' ' . $this->json ($response));
         return $response;
     }
 }
-
-?>

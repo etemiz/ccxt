@@ -1,9 +1,9 @@
-"use strict";
+'use strict';
 
 //  ---------------------------------------------------------------------------
 
-const Exchange = require ('./base/Exchange')
-const { ExchangeError, AuthenticationError } = require ('./base/errors')
+const Exchange = require ('./base/Exchange');
+const { ExchangeError } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -64,7 +64,7 @@ module.exports = class quadrigacx extends Exchange {
                 'ETH/BTC': { 'id': 'eth_btc', 'symbol': 'ETH/BTC', 'base': 'ETH', 'quote': 'BTC', 'maker': 0.002, 'taker': 0.002 },
                 'ETH/CAD': { 'id': 'eth_cad', 'symbol': 'ETH/CAD', 'base': 'ETH', 'quote': 'CAD', 'maker': 0.005, 'taker': 0.005 },
                 'LTC/CAD': { 'id': 'ltc_cad', 'symbol': 'LTC/CAD', 'base': 'LTC', 'quote': 'CAD', 'maker': 0.005, 'taker': 0.005 },
-                'BCH/CAD': { 'id': 'btc_cad', 'symbol': 'BCH/CAD', 'base': 'BCH', 'quote': 'CAD', 'maker': 0.005, 'taker': 0.005 },
+                'BCH/CAD': { 'id': 'bch_cad', 'symbol': 'BCH/CAD', 'base': 'BCH', 'quote': 'CAD', 'maker': 0.005, 'taker': 0.005 },
                 'BTG/CAD': { 'id': 'btg_cad', 'symbol': 'BTG/CAD', 'base': 'BTG', 'quote': 'CAD', 'maker': 0.005, 'taker': 0.005 },
             },
         });
@@ -155,7 +155,7 @@ module.exports = class quadrigacx extends Exchange {
             'amount': amount,
             'book': this.marketId (symbol),
         };
-        if (type == 'limit')
+        if (type === 'limit')
             order['price'] = price;
         let response = await this[method] (this.extend (order, params));
         return {
@@ -170,20 +170,40 @@ module.exports = class quadrigacx extends Exchange {
         }, params));
     }
 
-    withdrawalMethod (currency) {
-        if (currency == 'ETH')
+    async fetchDepositAddress (currency, params = {}) {
+        let method = 'privatePost' + this.getCurrencyName (currency) + 'DepositAddress';
+        let response = await this[method] (params);
+        let address = undefined;
+        let status = undefined;
+        // [E|e]rror
+        if (response.indexOf ('rror') >= 0) {
+            status = 'error';
+        } else {
+            address = response;
+            status = 'ok';
+        }
+        return {
+            'currency': currency,
+            'address': address,
+            'status': status,
+            'info': this.last_http_response,
+        };
+    }
+
+    getCurrencyName (currency) {
+        if (currency === 'ETH')
             return 'Ether';
-        if (currency == 'BTC')
+        if (currency === 'BTC')
             return 'Bitcoin';
     }
 
-    async withdraw (currency, amount, address, params = {}) {
+    async withdraw (currency, amount, address, tag = undefined, params = {}) {
         await this.loadMarkets ();
         let request = {
             'amount': amount,
-            'address': address
+            'address': address,
         };
-        let method = 'privatePost' + this.withdrawalMethod (currency) + 'Withdrawal';
+        let method = 'privatePost' + this.getCurrencyName (currency) + 'Withdrawal';
         let response = await this[method] (this.extend (request, params));
         return {
             'info': response,
@@ -193,7 +213,7 @@ module.exports = class quadrigacx extends Exchange {
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let url = this.urls['api'] + '/' + this.version + '/' + path;
-        if (api == 'public') {
+        if (api === 'public') {
             url += '?' + this.urlencode (params);
         } else {
             this.checkRequiredCredentials ();
@@ -215,6 +235,8 @@ module.exports = class quadrigacx extends Exchange {
 
     async request (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let response = await this.fetch2 (path, api, method, params, headers, body);
+        if (typeof response === 'string')
+            return response;
         if ('error' in response)
             throw new ExchangeError (this.id + ' ' + this.json (response));
         return response;

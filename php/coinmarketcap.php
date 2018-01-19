@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class coinmarketcap extends Exchange {
 
     public function describe () {
@@ -27,7 +25,11 @@ class coinmarketcap extends Exchange {
             ),
             'urls' => array (
                 'logo' => 'https://user-images.githubusercontent.com/1294454/28244244-9be6312a-69ed-11e7-99c1-7c1797275265.jpg',
-                'api' => 'https://api.coinmarketcap.com',
+                'api' => array (
+                    'public' => 'https://api.coinmarketcap.com',
+                    'files' => 'https://files.coinmarketcap.com',
+                    'charts' => 'https://graph.coinmarketcap.com',
+                ),
                 'www' => 'https://coinmarketcap.com',
                 'doc' => 'https://coinmarketcap.com/api',
             ),
@@ -36,6 +38,16 @@ class coinmarketcap extends Exchange {
                 'secret' => false,
             ),
             'api' => array (
+                'files' => array (
+                    'get' => array (
+                        'generated/stats/global.json',
+                    ),
+                ),
+                'graphs' => array (
+                    'get' => array (
+                        'currencies/{name}/',
+                    ),
+                ),
                 'public' => array (
                     'get' => array (
                         'ticker/',
@@ -68,6 +80,17 @@ class coinmarketcap extends Exchange {
         throw new ExchangeError ('Fetching order books is not supported by the API of ' . $this->id);
     }
 
+    public function currency_code ($base, $name) {
+        $currencies = array (
+            'Bitgem' => 'Bitgem',
+            'NetCoin' => 'NetCoin',
+            'BatCoin' => 'BatCoin',
+        );
+        if (is_array ($currencies) && array_key_exists ($name, $currencies))
+            return $currencies[$name];
+        return $base;
+    }
+
     public function fetch_markets () {
         $markets = $this->publicGetTicker (array (
             'limit' => 0,
@@ -79,8 +102,8 @@ class coinmarketcap extends Exchange {
             for ($i = 0; $i < count ($currencies); $i++) {
                 $quote = $currencies[$i];
                 $quoteId = strtolower ($quote);
-                $base = $market['symbol'];
                 $baseId = $market['id'];
+                $base = $this->currency_code ($market['symbol'], $market['name']);
                 $symbol = $base . '/' . $quote;
                 $id = $baseId . '/' . $quote;
                 $result[] = array (
@@ -107,25 +130,26 @@ class coinmarketcap extends Exchange {
 
     public function parse_ticker ($ticker, $market = null) {
         $timestamp = $this->milliseconds ();
-        if (array_key_exists ('last_updated', $ticker))
+        if (is_array ($ticker) && array_key_exists ('last_updated', $ticker))
             if ($ticker['last_updated'])
                 $timestamp = intval ($ticker['last_updated']) * 1000;
         $change = null;
-        $changeKey = 'percent_change_24h';
-        if (array_key_exists ($changeKey, $ticker))
-            $change = floatval ($ticker[$changeKey]);
+        if (is_array ($ticker) && array_key_exists ('percent_change_24h', $ticker))
+            if ($ticker['percent_change_24h'])
+                $change = $this->safe_float($ticker, 'percent_change_24h');
         $last = null;
         $symbol = null;
         $volume = null;
         if ($market) {
-            $price = 'price_' . $market['quoteId'];
-            if (array_key_exists ($price, $ticker))
-                if ($ticker[$price])
-                    $last = floatval ($ticker[$price]);
+            $priceKey = 'price_' . $market['quoteId'];
+            if (is_array ($ticker) && array_key_exists ($priceKey, $ticker))
+                if ($ticker[$priceKey])
+                    $last = $this->safe_float($ticker, $priceKey);
             $symbol = $market['symbol'];
             $volumeKey = '24h_volume_' . $market['quoteId'];
-            if (array_key_exists ($volumeKey, $ticker))
-                $volume = floatval ($ticker[$volumeKey]);
+            if (is_array ($ticker) && array_key_exists ($volumeKey, $ticker))
+                if ($ticker[$volumeKey])
+                    $volume = $this->safe_float($ticker, $volumeKey);
         }
         return array (
             'symbol' => $symbol,
@@ -163,7 +187,7 @@ class coinmarketcap extends Exchange {
             $id = $ticker['id'] . '/' . $currency;
             $symbol = $id;
             $market = null;
-            if (array_key_exists ($id, $this->markets_by_id)) {
+            if (is_array ($this->markets_by_id) && array_key_exists ($id, $this->markets_by_id)) {
                 $market = $this->markets_by_id[$id];
                 $symbol = $market['symbol'];
             }
@@ -186,37 +210,35 @@ class coinmarketcap extends Exchange {
 
     public function fetch_currencies ($params = array ()) {
         $currencies = $this->publicGetTicker (array_merge (array (
-            'limit' => 0
+            'limit' => 0,
         ), $params));
         $result = array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $id = $currency['symbol'];
+            $name = $currency['name'];
             // todo => will need to rethink the fees
             // to add support for multiple withdrawal/deposit methods and
             // differentiated fees for each particular method
-            $precision = array (
-                'amount' => 8, // default $precision, todo => fix "magic constants"
-                'price' => 8,
-            );
-            $code = $this->common_currency_code($id);
+            $precision = 8; // default $precision, todo => fix "magic constants"
+            $code = $this->currency_code ($id, $name);
             $result[$code] = array (
                 'id' => $id,
                 'code' => $code,
                 'info' => $currency,
-                'name' => $currency['name'],
+                'name' => $name,
                 'active' => true,
                 'status' => 'ok',
                 'fee' => null, // todo => redesign
                 'precision' => $precision,
                 'limits' => array (
                     'amount' => array (
-                        'min' => pow (10, -$precision['amount']),
-                        'max' => pow (10, $precision['amount']),
+                        'min' => pow (10, -$precision),
+                        'max' => pow (10, $precision),
                     ),
                     'price' => array (
-                        'min' => pow (10, -$precision['price']),
-                        'max' => pow (10, $precision['price']),
+                        'min' => pow (10, -$precision),
+                        'max' => pow (10, $precision),
                     ),
                     'cost' => array (
                         'min' => null,
@@ -233,7 +255,7 @@ class coinmarketcap extends Exchange {
     }
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
-        $url = $this->urls['api'] . '/' . $this->version . '/' . $this->implode_params($path, $params);
+        $url = $this->urls['api'][$api] . '/' . $this->version . '/' . $this->implode_params($path, $params);
         $query = $this->omit ($params, $this->extract_params($path));
         if ($query)
             $url .= '?' . $this->urlencode ($query);
@@ -242,7 +264,7 @@ class coinmarketcap extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('error', $response)) {
+        if (is_array ($response) && array_key_exists ('error', $response)) {
             if ($response['error']) {
                 throw new ExchangeError ($this->id . ' ' . $this->json ($response));
             }
@@ -250,5 +272,3 @@ class coinmarketcap extends Exchange {
         return $response;
     }
 }
-
-?>

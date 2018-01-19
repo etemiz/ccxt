@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class bitflyer extends Exchange {
 
     public function describe () {
@@ -81,11 +79,11 @@ class bitflyer extends Exchange {
             $base = null;
             $quote = null;
             $symbol = $id;
-            $numCurrencies = count ($currencies);
-            if ($numCurrencies == 1) {
+            $numCurrencies = is_array ($currencies) ? count ($currencies) : 0;
+            if ($numCurrencies === 1) {
                 $base = mb_substr ($symbol, 0, 3);
                 $quote = mb_substr ($symbol, 3, 6);
-            } else if ($numCurrencies == 2) {
+            } else if ($numCurrencies === 2) {
                 $base = $currencies[0];
                 $quote = $currencies[1];
                 $symbol = $base . '/' . $quote;
@@ -114,11 +112,11 @@ class bitflyer extends Exchange {
             $balances[$currency] = $account;
         }
         $result = array ( 'info' => $response );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
-            if (array_key_exists ($currency, $balances)) {
+            if (is_array ($balances) && array_key_exists ($currency, $balances)) {
                 $account['total'] = $balances[$currency]['amount'];
                 $account['free'] = $balances[$currency]['available'];
                 $account['used'] = $account['total'] - $account['free'];
@@ -167,11 +165,11 @@ class bitflyer extends Exchange {
     public function parse_trade ($trade, $market = null) {
         $side = null;
         $order = null;
-        if (array_key_exists ('side', $trade))
+        if (is_array ($trade) && array_key_exists ('side', $trade))
             if ($trade['side']) {
                 $side = strtolower ($trade['side']);
                 $id = $side . '_child_order_acceptance_id';
-                if (array_key_exists ($id, $trade))
+                if (is_array ($trade) && array_key_exists ($id, $trade))
                     $order = $trade[$id];
             }
         $timestamp = $this->parse8601 ($trade['exec_date']);
@@ -221,7 +219,7 @@ class bitflyer extends Exchange {
         ), $params));
     }
 
-    public function withdraw ($currency, $amount, $address, $params = array ()) {
+    public function withdraw ($currency, $amount, $address, $tag = null, $params = array ()) {
         $this->load_markets();
         $response = $this->privatePostWithdraw (array_merge (array (
             'currency_code' => $currency,
@@ -236,15 +234,15 @@ class bitflyer extends Exchange {
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $request = '/' . $this->version . '/';
-        if ($api == 'private')
+        if ($api === 'private')
             $request .= 'me/';
         $request .= $path;
-        if ($method == 'GET') {
+        if ($method === 'GET') {
             if ($params)
                 $request .= '?' . $this->urlencode ($params);
         }
         $url = $this->urls['api'] . $request;
-        if ($api == 'private') {
+        if ($api === 'private') {
             $this->check_required_credentials();
             $nonce = (string) $this->nonce ();
             $body = $this->json ($params);
@@ -259,5 +257,3 @@ class bitflyer extends Exchange {
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 }
-
-?>

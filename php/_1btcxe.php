@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class _1btcxe extends Exchange {
 
     public function describe () {
@@ -88,7 +86,7 @@ class _1btcxe extends Exchange {
         $response = $this->privatePostBalancesAndInfo ();
         $balance = $response['balances-and-info'];
         $result = array ( 'info' => $balance );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
@@ -187,7 +185,7 @@ class _1btcxe extends Exchange {
             'currency' => $this->market_id($symbol),
             'amount' => $amount,
         );
-        if ($type == 'limit')
+        if ($type === 'limit')
             $order['limit_price'] = $price;
         $result = $this->privatePostOrdersNew (array_merge ($order, $params));
         return array (
@@ -200,7 +198,7 @@ class _1btcxe extends Exchange {
         return $this->privatePostOrdersCancel (array ( 'id' => $id ));
     }
 
-    public function withdraw ($currency, $amount, $address, $params = array ()) {
+    public function withdraw ($currency, $amount, $address, $tag = null, $params = array ()) {
         $this->load_markets();
         $response = $this->privatePostWithdrawalsNew (array_merge (array (
             'currency' => $currency,
@@ -214,10 +212,10 @@ class _1btcxe extends Exchange {
     }
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
-        if ($this->id == 'cryptocapital')
+        if ($this->id === 'cryptocapital')
             throw new ExchangeError ($this->id . ' is an abstract base API for _1btcxe');
         $url = $this->urls['api'] . '/' . $path;
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($params)
                 $url .= '?' . $this->urlencode ($params);
         } else {
@@ -236,7 +234,7 @@ class _1btcxe extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('errors', $response)) {
+        if (is_array ($response) && array_key_exists ('errors', $response)) {
             $errors = array ();
             for ($e = 0; $e < count ($response['errors']); $e++) {
                 $error = $response['errors'][$e];
@@ -248,5 +246,3 @@ class _1btcxe extends Exchange {
         return $response;
     }
 }
-
-?>

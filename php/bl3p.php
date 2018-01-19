@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class bl3p extends Exchange {
 
     public function describe () {
@@ -55,7 +53,7 @@ class bl3p extends Exchange {
             ),
             'markets' => array (
                 'BTC/EUR' => array ( 'id' => 'BTCEUR', 'symbol' => 'BTC/EUR', 'base' => 'BTC', 'quote' => 'EUR', 'maker' => 0.0025, 'taker' => 0.0025 ),
-                // 'LTC/EUR' => array ( 'id' => 'LTCEUR', 'symbol' => 'LTC/EUR', 'base' => 'LTC', 'quote' => 'EUR' ),
+                'LTC/EUR' => array ( 'id' => 'LTCEUR', 'symbol' => 'LTC/EUR', 'base' => 'LTC', 'quote' => 'EUR', 'maker' => 0.0025, 'taker' => 0.0025 ),
             ),
         ));
     }
@@ -65,17 +63,17 @@ class bl3p extends Exchange {
         $data = $response['data'];
         $balance = $data['wallets'];
         $result = array ( 'info' => $data );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
-            if (array_key_exists ($currency, $balance)) {
-                if (array_key_exists ('available', $balance[$currency])) {
+            if (is_array ($balance) && array_key_exists ($currency, $balance)) {
+                if (is_array ($balance[$currency]) && array_key_exists ('available', $balance[$currency])) {
                     $account['free'] = floatval ($balance[$currency]['available']['value']);
                 }
             }
-            if (array_key_exists ($currency, $balance)) {
-                if (array_key_exists ('balance', $balance[$currency])) {
+            if (is_array ($balance) && array_key_exists ($currency, $balance)) {
+                if (is_array ($balance[$currency]) && array_key_exists ('balance', $balance[$currency])) {
                     $account['total'] = floatval ($balance[$currency]['balance']['value']);
                 }
             }
@@ -134,8 +132,7 @@ class bl3p extends Exchange {
 
     public function parse_trade ($trade, $market) {
         return array (
-            'id' => $trade['trade_id'],
-            'info' => $trade,
+            'id' => (string) $trade['trade_id'],
             'timestamp' => $trade['date'],
             'datetime' => $this->iso8601 ($trade['date']),
             'symbol' => $market['symbol'],
@@ -143,6 +140,7 @@ class bl3p extends Exchange {
             'side' => null,
             'price' => $trade['price_int'] / 100000.0,
             'amount' => $trade['amount_int'] / 100000000.0,
+            'info' => $trade,
         );
     }
 
@@ -159,16 +157,16 @@ class bl3p extends Exchange {
         $market = $this->market ($symbol);
         $order = array (
             'market' => $market['id'],
-            'amount_int' => $amount,
+            'amount_int' => intval ($amount * 100000000),
             'fee_currency' => $market['quote'],
             'type' => ($side == 'buy') ? 'bid' : 'ask',
         );
         if ($type == 'limit')
-            $order['price_int'] = $price;
+            $order['price_int'] = intval ($price * 100000.0);
         $response = $this->privatePostMarketMoneyOrderAdd (array_merge ($order, $params));
         return array (
             'info' => $response,
-            'id' => (string) $response['order_id'],
+            'id' => (string) $response['data']['order_id'],
         );
     }
 
@@ -193,11 +191,9 @@ class bl3p extends Exchange {
             $headers = array (
                 'Content-Type' => 'application/x-www-form-urlencoded',
                 'Rest-Key' => $this->apiKey,
-                'Rest-Sign' => $signature,
+                'Rest-Sign' => $this->decode ($signature),
             );
         }
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 }
-
-?>

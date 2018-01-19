@@ -1,9 +1,9 @@
-"use strict";
+'use strict';
 
 //  ---------------------------------------------------------------------------
 
-const Exchange = require ('./base/Exchange')
-const { ExchangeError } = require ('./base/errors')
+const Exchange = require ('./base/Exchange');
+const { ExchangeError } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -15,9 +15,16 @@ module.exports = class bter extends Exchange {
             'name': 'Bter',
             'countries': [ 'VG', 'CN' ], // British Virgin Islands, China
             'version': '2',
+            // obsolete metainfo interface
             'hasCORS': false,
             'hasFetchTickers': true,
             'hasWithdraw': true,
+            // new metainfo interface
+            'has': {
+                'CORS': false,
+                'fetchTickers': true,
+                'withdraw': true,
+            },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27980479-cfa3188c-6387-11e7-8191-93fc4184ba5c.jpg',
                 'api': {
@@ -26,6 +33,7 @@ module.exports = class bter extends Exchange {
                 },
                 'www': 'https://bter.com',
                 'doc': 'https://bter.com/api2',
+                'fees': 'https://bter.com/fee',
             },
             'api': {
                 'public': {
@@ -63,7 +71,9 @@ module.exports = class bter extends Exchange {
 
     async fetchMarkets () {
         let response = await this.publicGetMarketinfo ();
-        let markets = response['pairs'];
+        let markets = this.safeValue (response, 'pairs');
+        if (!markets)
+            throw new ExchangeError (this.id + ' fetchMarkets got an unrecognized response');
         let result = [];
         for (let i = 0; i < markets.length; i++) {
             let market = markets[i];
@@ -227,7 +237,7 @@ module.exports = class bter extends Exchange {
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
-        if (type == 'market')
+        if (type === 'market')
             throw new ExchangeError (this.id + ' allows limit orders only');
         await this.loadMarkets ();
         let method = 'privatePost' + this.capitalize (side);
@@ -248,7 +258,7 @@ module.exports = class bter extends Exchange {
         return await this.privatePostCancelOrder ({ 'orderNumber': id });
     }
 
-    async withdraw (currency, amount, address, params = {}) {
+    async withdraw (currency, amount, address, tag = undefined, params = {}) {
         await this.loadMarkets ();
         let response = await this.privatePostWithdraw (this.extend ({
             'currency': currency.toLowerCase (),
@@ -262,10 +272,10 @@ module.exports = class bter extends Exchange {
     }
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
-        let prefix = (api == 'private') ? (api + '/') : '';
+        let prefix = (api === 'private') ? (api + '/') : '';
         let url = this.urls['api'][api] + this.version + '/1/' + prefix + this.implodeParams (path, params);
         let query = this.omit (params, this.extractParams (path));
-        if (api == 'public') {
+        if (api === 'public') {
             if (Object.keys (query).length)
                 url += '?' + this.urlencode (query);
         } else {
@@ -286,7 +296,7 @@ module.exports = class bter extends Exchange {
     async request (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let response = await this.fetch2 (path, api, method, params, headers, body);
         if ('result' in response)
-            if (response['result'] != 'true')
+            if (response['result'] !== 'true')
                 throw new ExchangeError (this.id + ' ' + this.json (response));
         return response;
     }

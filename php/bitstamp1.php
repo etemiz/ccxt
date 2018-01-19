@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class bitstamp1 extends Exchange {
 
     public function describe () {
@@ -72,7 +70,7 @@ class bitstamp1 extends Exchange {
     }
 
     public function fetch_order_book ($symbol, $params = array ()) {
-        if ($symbol != 'BTC/USD')
+        if ($symbol !== 'BTC/USD')
             throw new ExchangeError ($this->id . ' ' . $this->version . " fetchOrderBook doesn't support " . $symbol . ', use it for BTC/USD only');
         $orderbook = $this->publicGetOrderBook ($params);
         $timestamp = intval ($orderbook['timestamp']) * 1000;
@@ -80,7 +78,7 @@ class bitstamp1 extends Exchange {
     }
 
     public function fetch_ticker ($symbol, $params = array ()) {
-        if ($symbol != 'BTC/USD')
+        if ($symbol !== 'BTC/USD')
             throw new ExchangeError ($this->id . ' ' . $this->version . " fetchTicker doesn't support " . $symbol . ', use it for BTC/USD only');
         $ticker = $this->publicGetTicker ($params);
         $timestamp = intval ($ticker['timestamp']) * 1000;
@@ -111,18 +109,18 @@ class bitstamp1 extends Exchange {
 
     public function parse_trade ($trade, $market = null) {
         $timestamp = null;
-        if (array_key_exists ('date', $trade)) {
+        if (is_array ($trade) && array_key_exists ('date', $trade)) {
             $timestamp = intval ($trade['date']) * 1000;
-        } else if (array_key_exists ('datetime', $trade)) {
+        } else if (is_array ($trade) && array_key_exists ('datetime', $trade)) {
             // $timestamp = $this->parse8601 ($trade['datetime']);
             $timestamp = intval ($trade['datetime']) * 1000;
         }
-        $side = ($trade['type'] == 0) ? 'buy' : 'sell';
+        $side = ($trade['type'] === 0) ? 'buy' : 'sell';
         $order = null;
-        if (array_key_exists ('order_id', $trade))
+        if (is_array ($trade) && array_key_exists ('order_id', $trade))
             $order = (string) $trade['order_id'];
-        if (array_key_exists ('currency_pair', $trade)) {
-            if (array_key_exists ($trade['currency_pair'], $this->markets_by_id))
+        if (is_array ($trade) && array_key_exists ('currency_pair', $trade)) {
+            if (is_array ($this->markets_by_id) && array_key_exists ($trade['currency_pair'], $this->markets_by_id))
                 $market = $this->markets_by_id[$trade['currency_pair']];
         }
         return array (
@@ -140,7 +138,7 @@ class bitstamp1 extends Exchange {
     }
 
     public function fetch_trades ($symbol, $since = null, $limit = null, $params = array ()) {
-        if ($symbol != 'BTC/USD')
+        if ($symbol !== 'BTC/USD')
             throw new ExchangeError ($this->id . ' ' . $this->version . " fetchTrades doesn't support " . $symbol . ', use it for BTC/USD only');
         $market = $this->market ($symbol);
         $response = $this->publicGetTransactions (array_merge (array (
@@ -152,7 +150,7 @@ class bitstamp1 extends Exchange {
     public function fetch_balance ($params = array ()) {
         $balance = $this->privatePostBalance ();
         $result = array ( 'info' => $balance );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $lowercase = strtolower ($currency);
@@ -169,9 +167,9 @@ class bitstamp1 extends Exchange {
     }
 
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
-        if ($type != 'limit')
+        if ($type !== 'limit')
             throw new ExchangeError ($this->id . ' ' . $this->version . ' accepts limit orders only');
-        if ($symbol != 'BTC/USD')
+        if ($symbol !== 'BTC/USD')
             throw new ExchangeError ($this->id . ' v1 supports BTC/USD orders only');
         $method = 'privatePost' . $this->capitalize ($side);
         $order = array (
@@ -190,9 +188,9 @@ class bitstamp1 extends Exchange {
     }
 
     public function parse_order_status ($order) {
-        if (($order['status'] == 'Queue') || ($order['status'] == 'Open'))
+        if (($order['status'] === 'Queue') || ($order['status'] === 'Open'))
             return 'open';
-        if ($order['status'] == 'Finished')
+        if ($order['status'] === 'Finished')
             return 'closed';
         return $order['status'];
     }
@@ -216,13 +214,12 @@ class bitstamp1 extends Exchange {
 
     public function fetch_order ($id, $symbol = null, $params = array ()) {
         throw new NotSupported ($this->id . ' fetchOrder is not implemented yet');
-        $this->load_markets();
     }
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $url = $this->urls['api'] . '/' . $this->implode_params($path, $params);
         $query = $this->omit ($params, $this->extract_params($path));
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($query)
                 $url .= '?' . $this->urlencode ($query);
         } else {
@@ -245,11 +242,9 @@ class bitstamp1 extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('status', $response))
-            if ($response['status'] == 'error')
+        if (is_array ($response) && array_key_exists ('status', $response))
+            if ($response['status'] === 'error')
                 throw new ExchangeError ($this->id . ' ' . $this->json ($response));
         return $response;
     }
 }
-
-?>

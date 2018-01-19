@@ -60,10 +60,14 @@ class coingi (Exchange):
             },
             'fees': {
                 'trading': {
+                    'tierBased': False,
+                    'percentage': True,
                     'taker': 0.2 / 100,
                     'maker': 0.2 / 100,
                 },
                 'funding': {
+                    'tierBased': False,
+                    'percentage': False,
                     'withdraw': {
                         'BTC': 0.001,
                         'LTC': 0.01,
@@ -144,7 +148,7 @@ class coingi (Exchange):
             currency = currencies[i]
             lowercaseCurrencies.append(currency.lower())
         balances = self.userPostBalance({
-            'currencies': ','.join(lowercaseCurrencies)
+            'currencies': ','.join(lowercaseCurrencies),
         })
         result = {'info': balances}
         for b in range(0, len(balances)):
@@ -196,7 +200,6 @@ class coingi (Exchange):
             'quoteVolume': ticker['counterVolume'],
             'info': ticker,
         }
-        return ticker
 
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()

@@ -2,8 +2,8 @@
 
 //  ---------------------------------------------------------------------------
 
-const Exchange = require ('./base/Exchange')
-const { ExchangeError } = require ('./base/errors')
+const Exchange = require ('./base/Exchange');
+const { ExchangeError } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -194,7 +194,7 @@ module.exports = class bxinth extends Exchange {
             'type': undefined,
             'side': trade['trade_type'],
             'price': parseFloat (trade['rate']),
-            'amount': trade['amount'],
+            'amount': parseFloat (trade['amount']),
         };
     }
 

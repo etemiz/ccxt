@@ -87,25 +87,34 @@ class cryptopia (Exchange):
         })
 
     def common_currency_code(self, currency):
-        if currency == 'CC':
-            return 'CCX'
-        if currency == 'FCN':
-            return 'Facilecoin'
-        if currency == 'NET':
-            return 'NetCoin'
-        if currency == 'BTG':
-            return 'Bitgem'
+        currencies = {
+            'ACC': 'AdCoin',
+            'CC': 'CCX',
+            'CMT': 'Comet',
+            'FCN': 'Facilecoin',
+            'NET': 'NetCoin',
+            'BTG': 'Bitgem',
+            'FUEL': 'FC2',  # FuelCoin != FUEL
+            'QBT': 'Cubits',
+            'WRC': 'WarCoin',
+        }
+        if currency in currencies:
+            return currencies[currency]
         return currency
 
     def currency_id(self, currency):
-        if currency == 'CCX':
-            return 'CC'
-        if currency == 'Facilecoin':
-            return 'FCN'
-        if currency == 'NetCoin':
-            return 'NET'
-        if currency == 'Bitgem':
-            return 'BTG'
+        currencies = {
+            'AdCoin': 'ACC',
+            'CCX': 'CC',
+            'Comet': 'CMT',
+            'Cubits': 'QBT',
+            'Facilecoin': 'FCN',
+            'NetCoin': 'NET',
+            'Bitgem': 'BTG',
+            'FC2': 'FUEL',
+        }
+        if currency in currencies:
+            return currencies[currency]
         return currency
 
     async def fetch_markets(self):
@@ -124,17 +133,22 @@ class cryptopia (Exchange):
                 'amount': 8,
                 'price': 8,
             }
-            amountLimits = {
-                'min': market['MinimumTrade'],
-                'max': market['MaximumTrade']
-            }
+            lot = market['MinimumTrade']
             priceLimits = {
                 'min': market['MinimumPrice'],
                 'max': market['MaximumPrice'],
             }
+            amountLimits = {
+                'min': lot,
+                'max': market['MaximumTrade'],
+            }
             limits = {
                 'amount': amountLimits,
                 'price': priceLimits,
+                'cost': {
+                    'min': priceLimits['min'] * amountLimits['min'],
+                    'max': None,
+                },
             }
             active = market['Status'] == 'OK'
             result.append({
@@ -145,7 +159,7 @@ class cryptopia (Exchange):
                 'info': market,
                 'maker': market['TradeFee'] / 100,
                 'taker': market['TradeFee'] / 100,
-                'lot': amountLimits['min'],
+                'lot': limits['amount']['min'],
                 'active': active,
                 'precision': precision,
                 'limits': limits,
@@ -253,23 +267,27 @@ class cryptopia (Exchange):
     async def fetch_trades(self, symbol, since=None, limit=None, params={}):
         await self.load_markets()
         market = self.market(symbol)
-        response = await self.publicGetMarketHistoryIdHours(self.extend({
+        hours = 24  # the default
+        if since:
+            elapsed = self.milliseconds() - since
+            hour = 1000 * 60 * 60
+            hours = int(elapsed / hour)
+        request = {
             'id': market['id'],
-            'hours': 24,  # default
-        }, params))
+            'hours': hours,
+        }
+        response = await self.publicGetMarketHistoryIdHours(self.extend(request, params))
         trades = response['Data']
         return self.parse_trades(trades, market, since, limit)
 
     async def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
-        if not symbol:
-            raise ExchangeError(self.id + ' fetchMyTrades requires a symbol')
         await self.load_markets()
-        market = self.market(symbol)
-        response = await self.privatePostGetTradeHistory(self.extend({
-            # 'Market': market['id'],
-            'TradePairId': market['id'],  # Cryptopia identifier(not required if 'Market' supplied)
-            # 'Count': 10,  # max = 100
-        }, params))
+        request = {}
+        market = None
+        if symbol:
+            market = self.market(symbol)
+            request['TradePairId'] = market['id']
+        response = await self.privatePostGetTradeHistory(self.extend(request, params))
         return self.parse_trades(response['Data'], market, since, limit)
 
     async def fetch_currencies(self, params={}):
@@ -282,13 +300,12 @@ class cryptopia (Exchange):
             # todo: will need to rethink the fees
             # to add support for multiple withdrawal/deposit methods and
             # differentiated fees for each particular method
-            precision = {
-                'amount': 8,  # default precision, todo: fix "magic constants"
-                'price': 8,
-            }
+            precision = 8  # default precision, todo: fix "magic constants"
             code = self.common_currency_code(id)
             active = (currency['ListingStatus'] == 'Active')
             status = currency['Status'].lower()
+            if status != 'ok':
+                active = False
             result[code] = {
                 'id': id,
                 'code': code,
@@ -300,15 +317,15 @@ class cryptopia (Exchange):
                 'precision': precision,
                 'limits': {
                     'amount': {
-                        'min': currency['MinBaseTrade'],
-                        'max': math.pow(10, precision['amount']),
+                        'min': math.pow(10, -precision),
+                        'max': math.pow(10, precision),
                     },
                     'price': {
-                        'min': math.pow(10, -precision['price']),
-                        'max': math.pow(10, precision['price']),
+                        'min': math.pow(10, -precision),
+                        'max': math.pow(10, precision),
                     },
                     'cost': {
-                        'min': None,
+                        'min': currency['MinBaseTrade'],
                         'max': None,
                     },
                     'withdraw': {
@@ -338,15 +355,19 @@ class cryptopia (Exchange):
         return self.parse_balance(result)
 
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
+        if type == 'market':
+            raise ExchangeError(self.id + ' allows limit orders only')
         await self.load_markets()
         market = self.market(symbol)
-        price = float(price)
-        amount = float(amount)
+        # price = float(price)
+        # amount = float(amount)
         request = {
             'TradePairId': market['id'],
             'Type': self.capitalize(side),
-            'Rate': self.price_to_precision(symbol, price),
-            'Amount': self.amount_to_precision(symbol, amount),
+            # 'Rate': self.price_to_precision(symbol, price),
+            # 'Amount': self.amount_to_precision(symbol, amount),
+            'Rate': price,
+            'Amount': amount,
         }
         response = await self.privatePostSubmitTrade(self.extend(request, params))
         if not response:
@@ -472,7 +493,7 @@ class cryptopia (Exchange):
 
     async def fetch_order(self, id, symbol=None, params={}):
         id = str(id)
-        orders = await self.fetch_orders(symbol, params)
+        orders = await self.fetch_orders(symbol, None, None, params)
         for i in range(0, len(orders)):
             if orders[i]['id'] == id:
                 return orders[i]
@@ -497,7 +518,7 @@ class cryptopia (Exchange):
     async def fetch_deposit_address(self, currency, params={}):
         currencyId = self.currency_id(currency)
         response = await self.privatePostGetDepositAddress(self.extend({
-            'Currency': currencyId
+            'Currency': currencyId,
         }, params))
         address = self.safe_string(response['Data'], 'BaseAddress')
         if not address:
@@ -509,13 +530,16 @@ class cryptopia (Exchange):
             'info': response,
         }
 
-    async def withdraw(self, currency, amount, address, params={}):
+    async def withdraw(self, currency, amount, address, tag=None, params={}):
         currencyId = self.currency_id(currency)
-        response = await self.privatePostSubmitWithdraw(self.extend({
+        request = {
             'Currency': currencyId,
             'Amount': amount,
             'Address': address,  # Address must exist in you AddressBook in security settings
-        }, params))
+        }
+        if tag:
+            request['PaymentId'] = tag
+        response = await self.privatePostSubmitWithdraw(self.extend(request, params))
         return {
             'info': response,
             'id': response['Data'],

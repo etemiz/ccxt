@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class coincheck extends Exchange {
 
     public function describe () {
@@ -94,15 +92,15 @@ class coincheck extends Exchange {
     public function fetch_balance ($params = array ()) {
         $balances = $this->privateGetAccountsBalance ();
         $result = array ( 'info' => $balances );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $lowercase = strtolower ($currency);
             $account = $this->account ();
-            if (array_key_exists ($lowercase, $balances))
+            if (is_array ($balances) && array_key_exists ($lowercase, $balances))
                 $account['free'] = floatval ($balances[$lowercase]);
             $reserved = $lowercase . '_reserved';
-            if (array_key_exists ($reserved, $balances))
+            if (is_array ($balances) && array_key_exists ($reserved, $balances))
                 $account['used'] = floatval ($balances[$reserved]);
             $account['total'] = $this->sum ($account['free'], $account['used']);
             $result[$currency] = $account;
@@ -148,7 +146,6 @@ class coincheck extends Exchange {
         $timestamp = $this->parse8601 ($trade['created_at']);
         return array (
             'id' => (string) $trade['id'],
-            'info' => $trade,
             'timestamp' => $timestamp,
             'datetime' => $this->iso8601 ($timestamp),
             'symbol' => $market['symbol'],
@@ -156,6 +153,7 @@ class coincheck extends Exchange {
             'side' => $trade['order_type'],
             'price' => floatval ($trade['rate']),
             'amount' => floatval ($trade['amount']),
+            'info' => $trade,
         );
     }
 
@@ -163,12 +161,17 @@ class coincheck extends Exchange {
         if ($symbol != 'BTC/JPY')
             throw new NotSupported ($this->id . ' fetchTrades () supports BTC/JPY only');
         $market = $this->market ($symbol);
-        $response = $this->publicGetTrades ($params);
-        return $this->parse_trades($response, $market, $since, $limit);
+        $response = $this->publicGetTrades (array_merge (array (
+            'pair' => $market['id'],
+        ), $params));
+        if (is_array ($response) && array_key_exists ('success', $response))
+            if ($response['success'])
+                if ($response['data'] != null)
+                    return $this->parse_trades($response['data'], $market, $since, $limit);
+        throw new ExchangeError ($this->id . ' ' . $this->json ($response));
     }
 
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
-        $prefix = '';
         $order = array (
             'pair' => $this->market_id($symbol),
         );
@@ -202,9 +205,17 @@ class coincheck extends Exchange {
         } else {
             $this->check_required_credentials();
             $nonce = (string) $this->nonce ();
-            if ($query)
-                $body = $this->urlencode ($this->keysort ($query));
-            $auth = $nonce . $url . ($body || '');
+            $queryString = '';
+            if ($method == 'GET') {
+                if ($query)
+                    $url .= '?' . $this->urlencode ($this->keysort ($query));
+            } else {
+                if ($query) {
+                    $body = $this->urlencode ($this->keysort ($query));
+                    $queryString = $body;
+                }
+            }
+            $auth = $nonce . $url . $queryString;
             $headers = array (
                 'Content-Type' => 'application/x-www-form-urlencoded',
                 'ACCESS-KEY' => $this->apiKey,
@@ -219,11 +230,9 @@ class coincheck extends Exchange {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
         if ($api == 'public')
             return $response;
-        if (array_key_exists ('success', $response))
+        if (is_array ($response) && array_key_exists ('success', $response))
             if ($response['success'])
                 return $response;
         throw new ExchangeError ($this->id . ' ' . $this->json ($response));
     }
 }
-
-?>

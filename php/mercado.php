@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class mercado extends Exchange {
 
     public function describe () {
@@ -132,12 +130,12 @@ class mercado extends Exchange {
         $response = $this->privatePostGetAccountInfo ();
         $balances = $response['response_data']['balance'];
         $result = array ( 'info' => $response );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $lowercase = strtolower ($currency);
             $account = $this->account ();
-            if (array_key_exists ($lowercase, $balances)) {
+            if (is_array ($balances) && array_key_exists ($lowercase, $balances)) {
                 $account['free'] = floatval ($balances[$lowercase]['available']);
                 $account['total'] = floatval ($balances[$lowercase]['total']);
                 $account['used'] = $account['total'] - $account['free'];
@@ -148,7 +146,7 @@ class mercado extends Exchange {
     }
 
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
-        if ($type == 'market')
+        if ($type === 'market')
             throw new ExchangeError ($this->id . ' allows limit orders only');
         $method = 'privatePostPlace' . $this->capitalize ($side) . 'Order';
         $order = array (
@@ -176,21 +174,21 @@ class mercado extends Exchange {
 
     public function parse_order ($order, $market = null) {
         $side = null;
-        if (array_key_exists ('order_type', $order))
-            $side = ($order['order_type'] == 1) ? 'buy' : 'sell';
+        if (is_array ($order) && array_key_exists ('order_type', $order))
+            $side = ($order['order_type'] === 1) ? 'buy' : 'sell';
         $status = $order['status'];
         $symbol = null;
         if (!$market) {
-            if (array_key_exists ('coin_pair', $order))
-                if (array_key_exists ($order['coin_pair'], $this->markets_by_id))
+            if (is_array ($order) && array_key_exists ('coin_pair', $order))
+                if (is_array ($this->markets_by_id) && array_key_exists ($order['coin_pair'], $this->markets_by_id))
                     $market = $this->markets_by_id[$order['coin_pair']];
         }
         if ($market)
             $symbol = $market['symbol'];
         $timestamp = null;
-        if (array_key_exists ('created_timestamp', $order))
+        if (is_array ($order) && array_key_exists ('created_timestamp', $order))
             $timestamp = intval ($order['created_timestamp']) * 1000;
-        if (array_key_exists ('updated_timestamp', $order))
+        if (is_array ($order) && array_key_exists ('updated_timestamp', $order))
             $timestamp = intval ($order['updated_timestamp']) * 1000;
         $fee = array (
             'cost' => floatval ($order['fee']),
@@ -236,19 +234,19 @@ class mercado extends Exchange {
         return $this->parse_order($response['response_data']['order']);
     }
 
-    public function withdraw ($currency, $amount, $address, $params = array ()) {
+    public function withdraw ($currency, $amount, $address, $tag = null, $params = array ()) {
         $this->load_markets();
         $request = array (
             'coin' => $currency,
-            'quantity' => sprintf ('%10f', $amount),
+            'quantity' => sprintf ('%.10f', $amount),
             'address' => $address,
         );
-        if ($currency == 'BRL') {
-            $account_ref = (array_key_exists ('account_ref', $params));
+        if ($currency === 'BRL') {
+            $account_ref = (is_array ($params) && array_key_exists ('account_ref', $params));
             if (!$account_ref)
                 throw new ExchangeError ($this->id . ' requires $account_ref parameter to withdraw ' . $currency);
-        } else if ($currency != 'LTC') {
-            $tx_fee = (array_key_exists ('tx_fee', $params));
+        } else if ($currency !== 'LTC') {
+            $tx_fee = (is_array ($params) && array_key_exists ('tx_fee', $params));
             if (!$tx_fee)
                 throw new ExchangeError ($this->id . ' requires $tx_fee parameter to withdraw ' . $currency);
         }
@@ -261,7 +259,7 @@ class mercado extends Exchange {
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $url = $this->urls['api'][$api] . '/';
-        if ($api == 'public') {
+        if ($api === 'public') {
             $url .= $this->implode_params($path, $params);
         } else {
             $this->check_required_credentials();
@@ -283,10 +281,8 @@ class mercado extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('error_message', $response))
+        if (is_array ($response) && array_key_exists ('error_message', $response))
             throw new ExchangeError ($this->id . ' ' . $this->json ($response));
         return $response;
     }
 }
-
-?>

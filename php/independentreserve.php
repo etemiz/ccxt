@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class independentreserve extends Exchange {
 
     public function describe () {
@@ -190,7 +188,7 @@ class independentreserve extends Exchange {
         $this->load_markets();
         $market = $this->market ($symbol);
         $capitalizedOrderType = $this->capitalize ($type);
-        $method = 'Place' . $capitalizedOrderType . 'Order';
+        $method = 'privatePostPlace' . $capitalizedOrderType . 'Order';
         $orderType = $capitalizedOrderType;
         $orderType .= ($side == 'sell') ?  'Offer' : 'Bid';
         $order = $this->ordered (array (
@@ -227,7 +225,7 @@ class independentreserve extends Exchange {
                 'nonce=' . (string) $nonce,
             );
             $keysorted = $this->keysort ($params);
-            $keys = array_keys ($keysorted);
+            $keys = is_array ($keysorted) ? array_keys ($keysorted) : array ();
             for ($i = 0; $i < count ($keys); $i++) {
                 $key = $keys[$i];
                 $auth[] = $key . '=' . $params[$key];
@@ -251,5 +249,3 @@ class independentreserve extends Exchange {
         return $response;
     }
 }
-
-?>

@@ -144,7 +144,6 @@ class coincheck (Exchange):
         timestamp = self.parse8601(trade['created_at'])
         return {
             'id': str(trade['id']),
-            'info': trade,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
             'symbol': market['symbol'],
@@ -152,17 +151,23 @@ class coincheck (Exchange):
             'side': trade['order_type'],
             'price': float(trade['rate']),
             'amount': float(trade['amount']),
+            'info': trade,
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
         if symbol != 'BTC/JPY':
             raise NotSupported(self.id + ' fetchTrades() supports BTC/JPY only')
         market = self.market(symbol)
-        response = self.publicGetTrades(params)
-        return self.parse_trades(response, market, since, limit)
+        response = self.publicGetTrades(self.extend({
+            'pair': market['id'],
+        }, params))
+        if 'success' in response:
+            if response['success']:
+                if response['data'] is not None:
+                    return self.parse_trades(response['data'], market, since, limit)
+        raise ExchangeError(self.id + ' ' + self.json(response))
 
     def create_order(self, symbol, type, side, amount, price=None, params={}):
-        prefix = ''
         order = {
             'pair': self.market_id(symbol),
         }
@@ -193,9 +198,15 @@ class coincheck (Exchange):
         else:
             self.check_required_credentials()
             nonce = str(self.nonce())
-            if query:
-                body = self.urlencode(self.keysort(query))
-            auth = nonce + url + (body or '')
+            queryString = ''
+            if method == 'GET':
+                if query:
+                    url += '?' + self.urlencode(self.keysort(query))
+            else:
+                if query:
+                    body = self.urlencode(self.keysort(query))
+                    queryString = body
+            auth = nonce + url + queryString
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'ACCESS-KEY': self.apiKey,

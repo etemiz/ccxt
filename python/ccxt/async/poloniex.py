@@ -3,10 +3,13 @@
 from ccxt.async.base.exchange import Exchange
 import hashlib
 import math
+import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import InsufficientFunds
+from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import OrderNotCached
+from ccxt.base.errors import ExchangeNotAvailable
 
 
 class poloniex (Exchange):
@@ -152,11 +155,15 @@ class poloniex (Exchange):
     def common_currency_code(self, currency):
         if currency == 'BTM':
             return 'Bitmark'
+        if currency == 'STR':
+            return 'XLM'
         return currency
 
     def currency_id(self, currency):
         if currency == 'Bitmark':
             return 'BTM'
+        if currency == 'XLM':
+            return 'STR'
         return currency
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='5m', since=None, limit=None):
@@ -240,6 +247,7 @@ class poloniex (Exchange):
         await self.load_markets()
         orderbook = await self.publicGetReturnOrderBook(self.extend({
             'currencyPair': self.market_id(symbol),
+            # 'depth': 100,
         }, params))
         return self.parse_order_book(orderbook)
 
@@ -292,13 +300,12 @@ class poloniex (Exchange):
             # todo: will need to rethink the fees
             # to add support for multiple withdrawal/deposit methods and
             # differentiated fees for each particular method
-            precision = {
-                'amount': 8,  # default precision, todo: fix "magic constants"
-                'price': 8,
-            }
+            precision = 8  # default precision, todo: fix "magic constants"
             code = self.common_currency_code(id)
             active = (currency['delisted'] == 0)
             status = 'disabled' if (currency['disabled']) else 'ok'
+            if status != 'ok':
+                active = False
             result[code] = {
                 'id': id,
                 'code': code,
@@ -310,12 +317,12 @@ class poloniex (Exchange):
                 'precision': precision,
                 'limits': {
                     'amount': {
-                        'min': math.pow(10, -precision['amount']),
-                        'max': math.pow(10, precision['amount']),
+                        'min': math.pow(10, -precision),
+                        'max': math.pow(10, precision),
                     },
                     'price': {
-                        'min': math.pow(10, -precision['price']),
-                        'max': math.pow(10, precision['price']),
+                        'min': math.pow(10, -precision),
+                        'max': math.pow(10, precision),
                     },
                     'cost': {
                         'min': None,
@@ -323,7 +330,7 @@ class poloniex (Exchange):
                     },
                     'withdraw': {
                         'min': currency['txFee'],
-                        'max': math.pow(10, precision['amount']),
+                        'max': math.pow(10, precision),
                     },
                 },
             }
@@ -339,10 +346,21 @@ class poloniex (Exchange):
     def parse_trade(self, trade, market=None):
         timestamp = self.parse8601(trade['date'])
         symbol = None
+        base = None
+        quote = None
         if (not market) and('currencyPair' in list(trade.keys())):
-            market = self.markets_by_id[trade['currencyPair']]
+            currencyPair = trade['currencyPair']
+            if currencyPair in self.markets_by_id:
+                market = self.markets_by_id[currencyPair]
+            else:
+                parts = currencyPair.split('_')
+                quote = parts[0]
+                base = parts[1]
+                symbol = base + '/' + quote
         if market:
             symbol = market['symbol']
+            base = market['base']
+            quote = market['quote']
         side = trade['type']
         fee = None
         cost = self.safe_float(trade, 'total')
@@ -352,10 +370,10 @@ class poloniex (Exchange):
             feeCost = None
             currency = None
             if side == 'buy':
-                currency = market['base']
+                currency = base
                 feeCost = amount * rate
             else:
-                currency = market['quote']
+                currency = quote
                 if cost is not None:
                     feeCost = cost * rate
             fee = {
@@ -413,8 +431,9 @@ class poloniex (Exchange):
                 ids = list(response.keys())
                 for i in range(0, len(ids)):
                     id = ids[i]
-                    market = self.markets_by_id[id]
-                    symbol = market['symbol']
+                    market = None
+                    if id in self.markets_by_id:
+                        market = self.markets_by_id[id]
                     trades = self.parse_trades(response[id], market)
                     for j in range(0, len(trades)):
                         result.append(trades[j])
@@ -430,11 +449,24 @@ class poloniex (Exchange):
         symbol = None
         if market:
             symbol = market['symbol']
-        price = float(order['price'])
+        price = self.safe_float(order, 'price')
         cost = self.safe_float(order, 'total', 0.0)
         remaining = self.safe_float(order, 'amount')
         amount = self.safe_float(order, 'startingAmount', remaining)
-        filled = amount - remaining
+        filled = None
+        if amount is not None:
+            if remaining is not None:
+                filled = amount - remaining
+        if filled is None:
+            if trades is not None:
+                filled = 0
+                cost = 0
+                for i in range(0, len(trades)):
+                    trade = trades[i]
+                    tradeAmount = trade['amount']
+                    tradePrice = trade['price']
+                    filled = self.sum(filled, tradeAmount)
+                    cost += tradePrice * tradeAmount
         return {
             'info': order,
             'id': order['orderNumber'],
@@ -511,7 +543,10 @@ class poloniex (Exchange):
         return self.filter_by_since_limit(result, since, limit)
 
     async def fetch_order(self, id, symbol=None, params={}):
-        orders = await self.fetch_orders(symbol, params)
+        since = self.safe_value(params, 'since')
+        limit = self.safe_value(params, 'limit')
+        request = self.omit(params, ['since', 'limit'])
+        orders = await self.fetch_orders(symbol, since, limit, request)
         for i in range(0, len(orders)):
             if orders[i]['id'] == id:
                 return orders[i]
@@ -526,11 +561,11 @@ class poloniex (Exchange):
 
     async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
         orders = await self.fetch_orders(symbol, since, limit, params)
-        orders = self.filter_orders_by_status(orders, 'open')
+        return self.filter_orders_by_status(orders, 'open')
 
     async def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
         orders = await self.fetch_orders(symbol, since, limit, params)
-        orders = self.filter_orders_by_status(orders, 'closed')
+        return self.filter_orders_by_status(orders, 'closed')
 
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
         if type == 'market':
@@ -561,25 +596,32 @@ class poloniex (Exchange):
     async def edit_order(self, id, symbol, type, side, amount, price=None, params={}):
         await self.load_markets()
         price = float(price)
-        amount = float(amount)
         request = {
             'orderNumber': id,
             'rate': self.price_to_precision(symbol, price),
-            'amount': self.amount_to_precision(symbol, amount),
         }
+        if amount is not None:
+            amount = float(amount)
+            request['amount'] = self.amount_to_precision(symbol, amount)
         response = await self.privatePostMoveOrder(self.extend(request, params))
         result = None
         if id in self.orders:
-            self.orders[id] = self.extend(self.orders[id], {
+            self.orders[id]['status'] = 'canceled'
+            newid = response['orderNumber']
+            self.orders[newid] = self.extend(self.orders[id], {
+                'id': newid,
                 'price': price,
-                'amount': amount,
+                'status': 'open',
             })
-            result = self.extend(self.orders[id], {'info': response})
+            if amount is not None:
+                self.orders[newid]['amount'] = amount
+            result = self.extend(self.orders[newid], {'info': response})
         else:
-            result = {
-                'info': response,
-                'id': response['orderNumber'],
-            }
+            market = None
+            if symbol:
+                market = self.market(symbol)
+            result = self.parse_order(response, market)
+            self.orders[result['id']] = result
         return result
 
     async def cancel_order(self, id, symbol=None, params={}):
@@ -614,7 +656,7 @@ class poloniex (Exchange):
     async def create_deposit_address(self, currency, params={}):
         currencyId = self.currency_id(currency)
         response = await self.privatePostGenerateNewAddress({
-            'currency': currencyId
+            'currency': currencyId,
         })
         address = None
         if response['success'] == 1:
@@ -640,14 +682,17 @@ class poloniex (Exchange):
             'info': response,
         }
 
-    async def withdraw(self, currency, amount, address, params={}):
+    async def withdraw(self, currency, amount, address, tag=None, params={}):
         await self.load_markets()
         currencyId = self.currency_id(currency)
-        result = await self.privatePostWithdraw(self.extend({
+        request = {
             'currency': currencyId,
             'amount': amount,
             'address': address,
-        }, params))
+        }
+        if tag:
+            request['paymentId'] = tag
+        result = await self.privatePostWithdraw(self.extend(request, params))
         return {
             'info': result,
             'id': result['response'],
@@ -671,6 +716,19 @@ class poloniex (Exchange):
                 'Sign': self.hmac(self.encode(body), self.encode(self.secret), hashlib.sha512),
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
+
+    def handle_errors(self, code, reason, url, method, headers, body):
+        if code >= 400:
+            if body[0] == '{':
+                response = json.loads(body)
+                if 'error' in response:
+                    error = self.id + ' ' + body
+                    if response['error'].find('Total must be at least') >= 0:
+                        raise InvalidOrder(error)
+                    elif response['error'].find('Not enough') >= 0:
+                        raise InsufficientFunds(error)
+                    elif response['error'].find('Nonce must be greater') >= 0:
+                        raise ExchangeNotAvailable(error)
 
     async def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
         response = await self.fetch2(path, api, method, params, headers, body)

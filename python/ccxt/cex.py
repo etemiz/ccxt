@@ -27,6 +27,10 @@ class cex (Exchange):
                 'api': 'https://cex.io/api',
                 'www': 'https://cex.io',
                 'doc': 'https://cex.io/cex-api',
+                'fees': [
+                    'https://cex.io/fee-schedule',
+                    'https://cex.io/limits-commissions',
+                ],
             },
             'requiredCredentials': {
                 'apiKey': True,
@@ -73,8 +77,38 @@ class cex (Exchange):
             },
             'fees': {
                 'trading': {
-                    'maker': 0,
-                    'taker': 0.2 / 100,
+                    'maker': 0.16 / 100,
+                    'taker': 0.25 / 100,
+                },
+                'funding': {
+                    'withdraw': {
+                        # 'USD': None,
+                        # 'EUR': None,
+                        # 'RUB': None,
+                        # 'GBP': None,
+                        'BTC': 0.001,
+                        'ETH': 0.01,
+                        'BCH': 0.001,
+                        'DASH': 0.01,
+                        'BTG': 0.001,
+                        'ZEC': 0.001,
+                        'XRP': 0.02,
+                        'XLM': None,
+                    },
+                    'deposit': {
+                        # 'USD': amount => amount * 0.035 + 0.25,
+                        # 'EUR': amount => amount * 0.035 + 0.24,
+                        # 'RUB': amount => amount * 0.05 + 15.57,
+                        # 'GBP': amount => amount * 0.035 + 0.2,
+                        'BTC': 0.0,
+                        'ETH': 0.0,
+                        'BCH': 0.0,
+                        'DASH': 0.0,
+                        'BTG': 0.0,
+                        'ZEC': 0.0,
+                        'XRP': 0.0,
+                        'XLM': 0.0,
+                    },
                 },
             },
         })
@@ -275,12 +309,6 @@ class cex (Exchange):
         self.load_markets()
         return self.privatePostCancelOrder({'id': id})
 
-    def fetch_order(self, id, symbol=None, params={}):
-        self.load_markets()
-        return self.privatePostGetOrder(self.extend({
-            'id': str(id),
-        }, params))
-
     def parse_order(self, order, market=None):
         timestamp = int(order['time'])
         symbol = None
@@ -289,7 +317,9 @@ class cex (Exchange):
             if symbol in self.markets:
                 market = self.market(symbol)
         status = order['status']
-        if status == 'cd':
+        if status == 'a':
+            status = 'open'  # the unified status
+        elif status == 'cd':
             status = 'canceled'
         elif status == 'c':
             status = 'canceled'
@@ -358,6 +388,13 @@ class cex (Exchange):
         for i in range(0, len(orders)):
             orders[i] = self.extend(orders[i], {'status': 'open'})
         return self.parse_orders(orders, market, since, limit)
+
+    def fetch_order(self, id, symbol=None, params={}):
+        self.load_markets()
+        response = self.privatePostGetOrder(self.extend({
+            'id': str(id),
+        }, params))
+        return self.parse_order(response)
 
     def nonce(self):
         return self.milliseconds()

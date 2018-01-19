@@ -13,9 +13,16 @@ class bter (Exchange):
             'name': 'Bter',
             'countries': ['VG', 'CN'],  # British Virgin Islands, China
             'version': '2',
+            # obsolete metainfo interface
             'hasCORS': False,
             'hasFetchTickers': True,
             'hasWithdraw': True,
+            # new metainfo interface
+            'has': {
+                'CORS': False,
+                'fetchTickers': True,
+                'withdraw': True,
+            },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27980479-cfa3188c-6387-11e7-8191-93fc4184ba5c.jpg',
                 'api': {
@@ -24,6 +31,7 @@ class bter (Exchange):
                 },
                 'www': 'https://bter.com',
                 'doc': 'https://bter.com/api2',
+                'fees': 'https://bter.com/fee',
             },
             'api': {
                 'public': {
@@ -60,7 +68,9 @@ class bter (Exchange):
 
     def fetch_markets(self):
         response = self.publicGetMarketinfo()
-        markets = response['pairs']
+        markets = self.safe_value(response, 'pairs')
+        if not markets:
+            raise ExchangeError(self.id + ' fetchMarkets got an unrecognized response')
         result = []
         for i in range(0, len(markets)):
             market = markets[i]
@@ -228,7 +238,7 @@ class bter (Exchange):
         self.load_markets()
         return self.privatePostCancelOrder({'orderNumber': id})
 
-    def withdraw(self, currency, amount, address, params={}):
+    def withdraw(self, currency, amount, address, tag=None, params={}):
         self.load_markets()
         response = self.privatePostWithdraw(self.extend({
             'currency': currency.lower(),

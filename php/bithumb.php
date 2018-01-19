@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class bithumb extends Exchange {
 
     public function describe () {
@@ -13,7 +11,14 @@ class bithumb extends Exchange {
             'countries' => 'KR', // South Korea
             'rateLimit' => 500,
             'hasCORS' => true,
+            // obsolete metainfo interface
             'hasFetchTickers' => true,
+            'hasWithdraw' => true,
+            // new metainfo interface
+            'has' => array (
+                'fetchTickers' => true,
+                'withdraw' => true,
+            ),
             'urls' => array (
                 'logo' => 'https://user-images.githubusercontent.com/1294454/30597177-ea800172-9d5e-11e7-804c-b9d4fa9b56b0.jpg',
                 'api' => array (
@@ -64,11 +69,11 @@ class bithumb extends Exchange {
 
     public function fetch_markets () {
         $markets = $this->publicGetTickerAll ();
-        $currencies = array_keys ($markets['data']);
+        $currencies = is_array ($markets['data']) ? array_keys ($markets['data']) : array ();
         $result = array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $id = $currencies[$i];
-            if ($id != 'date') {
+            if ($id !== 'date') {
                 $market = $markets['data'][$id];
                 $base = $id;
                 $quote = 'KRW';
@@ -112,7 +117,7 @@ class bithumb extends Exchange {
         ), $params));
         $result = array ( 'info' => $response );
         $balances = $response['data'];
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
@@ -126,6 +131,7 @@ class bithumb extends Exchange {
     }
 
     public function fetch_order_book ($symbol, $params = array ()) {
+        $this->load_markets();
         $market = $this->market ($symbol);
         $response = $this->publicGetOrderbookCurrency (array_merge (array (
             'count' => 50, // max = 50
@@ -164,16 +170,17 @@ class bithumb extends Exchange {
     }
 
     public function fetch_tickers ($symbols = null, $params = array ()) {
+        $this->load_markets();
         $response = $this->publicGetTickerAll ($params);
         $result = array ();
         $timestamp = $response['data']['date'];
         $tickers = $this->omit ($response['data'], 'date');
-        $ids = array_keys ($tickers);
+        $ids = is_array ($tickers) ? array_keys ($tickers) : array ();
         for ($i = 0; $i < count ($ids); $i++) {
             $id = $ids[$i];
             $symbol = $id;
             $market = null;
-            if (array_key_exists ($id, $this->markets_by_id)) {
+            if (is_array ($this->markets_by_id) && array_key_exists ($id, $this->markets_by_id)) {
                 $market = $this->markets_by_id[$id];
                 $symbol = $market['symbol'];
             }
@@ -185,6 +192,7 @@ class bithumb extends Exchange {
     }
 
     public function fetch_ticker ($symbol, $params = array ()) {
+        $this->load_markets();
         $market = $this->market ($symbol);
         $response = $this->publicGetTickerCurrency (array_merge (array (
             'currency' => $market['base'],
@@ -199,7 +207,7 @@ class bithumb extends Exchange {
         if ($transaction_time_short)
             $transaction_time = '0' . $transaction_time;
         $timestamp = $this->parse8601 ($transaction_date . ' ' . $transaction_time);
-        $side = ($trade['type'] == 'ask') ? 'sell' : 'buy';
+        $side = ($trade['type'] === 'ask') ? 'sell' : 'buy';
         return array (
             'id' => null,
             'info' => $trade,
@@ -215,6 +223,7 @@ class bithumb extends Exchange {
     }
 
     public function fetch_trades ($symbol, $since = null, $limit = null, $params = array ()) {
+        $this->load_markets();
         $market = $this->market ($symbol);
         $response = $this->publicGetRecentTransactionsCurrency (array_merge (array (
             'currency' => $market['base'],
@@ -224,29 +233,44 @@ class bithumb extends Exchange {
     }
 
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
-        throw new NotSupported ($this->id . ' private API not implemented yet');
-        //     $prefix = '';
-        //     if ($type == 'market')
-        //         $prefix = 'market_';
-        //     $order = array (
-        //         'pair' => $this->market_id($symbol),
-        //         'quantity' => $amount,
-        //         'price' => $price || 0,
-        //         'type' => $prefix . $side,
-        //     );
-        //     $response = $this->privatePostOrderCreate (array_merge ($order, $params));
-        //     return array (
-        //         'info' => $response,
-        //         'id' => (string) $response['order_id'],
-        //     );
+        $this->load_markets();
+        $market = $this->market ($symbol);
+        $request = null;
+        $method = 'privatePostTrade';
+        if ($type === 'limit') {
+            $request = array (
+                'order_currency' => $market['id'],
+                'Payment_currency' => $market['quote'],
+                'units' => $amount,
+                'price' => $price,
+                'type' => ($side === 'buy') ? 'bid' : 'ask',
+            );
+            $method .= 'Place';
+        } else if ($type === 'market') {
+            $request = array (
+                'currency' => $market['id'],
+                'units' => $amount,
+            );
+            $method .= 'Market' . $this->capitalize ($side);
+        }
+        $response = $this->$method (array_merge ($request, $params));
+        $id = null;
+        if (is_array ($response) && array_key_exists ('order_id', $response)) {
+            if ($response['order_id'])
+                $id = (string) $response['order_id'];
+        }
+        return array (
+            'info' => $response,
+            'id' => $id,
+        );
     }
 
     public function cancel_order ($id, $symbol = null, $params = array ()) {
-        $side = (array_key_exists ('side', $params));
+        $side = (is_array ($params) && array_key_exists ('side', $params));
         if (!$side)
-            throw new ExchangeError ($this->id . ' cancelOrder requires a $side parameter (sell or buy)');
-        $side = ($side == 'buy') ? 'purchase' : 'sales';
-        $currency = (array_key_exists ('currency', $params));
+            throw new ExchangeError ($this->id . ' cancelOrder requires a $side parameter (sell or buy) and a $currency parameter');
+        $side = ($side === 'buy') ? 'purchase' : 'sales';
+        $currency = (is_array ($params) && array_key_exists ('currency', $params));
         if (!$currency)
             throw new ExchangeError ($this->id . ' cancelOrder requires a $currency parameter');
         return $this->privatePostTradeCancel (array (
@@ -254,6 +278,24 @@ class bithumb extends Exchange {
             'type' => $params['side'],
             'currency' => $params['currency'],
         ));
+    }
+
+    public function withdraw ($currency, $amount, $address, $tag = null, $params = array ()) {
+        $request = array (
+            'units' => $amount,
+            'address' => $address,
+            'currency' => $currency,
+        );
+        if ($currency === 'XRP' || $currency === 'XMR') {
+            $destination = (is_array ($params) && array_key_exists ('destination', $params));
+            if (!$destination)
+                throw new ExchangeError ($this->id . ' ' . $currency . ' withdraw requires an extra $destination param');
+        }
+        $response = $this->privatePostTradeBtcWithdrawal (array_merge ($request, $params));
+        return array (
+            'info' => $response,
+            'id' => null,
+        );
     }
 
     public function nonce () {
@@ -264,7 +306,7 @@ class bithumb extends Exchange {
         $endpoint = '/' . $this->implode_params($path, $params);
         $url = $this->urls['api'][$api] . $endpoint;
         $query = $this->omit ($params, $this->extract_params($path));
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($query)
                 $url .= '?' . $this->urlencode ($query);
         } else {
@@ -273,11 +315,14 @@ class bithumb extends Exchange {
                 'endpoint' => $endpoint,
             ), $query));
             $nonce = (string) $this->nonce ();
-            $auth = $endpoint . "\0" . $body . "\0" . $nonce;
+            $auth = $endpoint . '\0' . $body . '\0' . $nonce;
             $signature = $this->hmac ($this->encode ($auth), $this->encode ($this->secret), 'sha512');
+            $signature64 = $this->decode (base64_encode ($this->encode ($signature)));
             $headers = array (
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/x-www-form-urlencoded',
                 'Api-Key' => $this->apiKey,
-                'Api-Sign' => $this->decode (base64_encode ($this->encode ($signature))),
+                'Api-Sign' => (string) $signature64,
                 'Api-Nonce' => $nonce,
             );
         }
@@ -286,13 +331,11 @@ class bithumb extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('status', $response)) {
-            if ($response['status'] == '0000')
+        if (is_array ($response) && array_key_exists ('status', $response)) {
+            if ($response['status'] === '0000')
                 return $response;
             throw new ExchangeError ($this->id . ' ' . $this->json ($response));
         }
         return $response;
     }
 }
-
-?>

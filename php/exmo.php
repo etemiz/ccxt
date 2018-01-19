@@ -2,8 +2,6 @@
 
 namespace ccxt;
 
-include_once ('base/Exchange.php');
-
 class exmo extends Exchange {
 
     public function describe () {
@@ -24,6 +22,7 @@ class exmo extends Exchange {
                     'https://exmo.me/en/api_doc',
                     'https://github.com/exmo-dev/exmo_api_lib/tree/master/nodejs',
                 ),
+                'fees' => 'https://exmo.com/en/docs/fees',
             ),
             'api' => array (
                 'public' => array (
@@ -59,13 +58,34 @@ class exmo extends Exchange {
                     'maker' => 0.2 / 100,
                     'taker' => 0.2 / 100,
                 ),
+                'funding' => array (
+                    'witdhraw' => array (
+                        'BTC' => 0.001,
+                        'LTC' => 0.01,
+                        'DOGE' => 1,
+                        'DASH' => 0.01,
+                        'ETH' => 0.01,
+                        'WAVES' => 0.001,
+                        'ZEC' => 0.001,
+                        'USDT' => 25,
+                        'XMR' => 0.05,
+                        'XRP' => 0.02,
+                        'KICK' => 350,
+                        'ETC' => 0.01,
+                        'BCH' => 0.001,
+                    ),
+                    'deposit' => array (
+                        'USDT' => 15,
+                        'KICK' => 50,
+                    ),
+                ),
             ),
         ));
     }
 
     public function fetch_markets () {
         $markets = $this->publicGetPairSettings ();
-        $keys = array_keys ($markets);
+        $keys = is_array ($markets) ? array_keys ($markets) : array ();
         $result = array ();
         for ($p = 0; $p < count ($keys); $p++) {
             $id = $keys[$p];
@@ -105,13 +125,13 @@ class exmo extends Exchange {
         $this->load_markets();
         $response = $this->privatePostUserInfo ();
         $result = array ( 'info' => $response );
-        $currencies = array_keys ($this->currencies);
+        $currencies = is_array ($this->currencies) ? array_keys ($this->currencies) : array ();
         for ($i = 0; $i < count ($currencies); $i++) {
             $currency = $currencies[$i];
             $account = $this->account ();
-            if (array_key_exists ($currency, $response['balances']))
+            if (is_array ($response['balances']) && array_key_exists ($currency, $response['balances']))
                 $account['free'] = floatval ($response['balances'][$currency]);
-            if (array_key_exists ($currency, $response['reserved']))
+            if (is_array ($response['reserved']) && array_key_exists ($currency, $response['reserved']))
                 $account['used'] = floatval ($response['reserved'][$currency]);
             $account['total'] = $this->sum ($account['free'], $account['used']);
             $result[$currency] = $account;
@@ -125,8 +145,12 @@ class exmo extends Exchange {
         $response = $this->publicGetOrderBook (array_merge (array (
             'pair' => $market['id'],
         ), $params));
-        $orderbook = $response[$market['id']];
-        return $this->parse_order_book($orderbook, null, 'bid', 'ask');
+        $result = $response[$market['id']];
+        $orderbook = $this->parse_order_book($result, null, 'bid', 'ask');
+        return array_merge ($orderbook, array (
+            'bids' => $this->sort_by($orderbook['bids'], 0, true),
+            'asks' => $this->sort_by($orderbook['asks'], 0),
+        ));
     }
 
     public function parse_ticker ($ticker, $market = null) {
@@ -160,7 +184,7 @@ class exmo extends Exchange {
         $this->load_markets();
         $response = $this->publicGetTicker ($params);
         $result = array ();
-        $ids = array_keys ($response);
+        $ids = is_array ($response) ? array_keys ($response) : array ();
         for ($i = 0; $i < count ($ids); $i++) {
             $id = $ids[$i];
             $market = $this->markets_by_id[$id];
@@ -206,7 +230,7 @@ class exmo extends Exchange {
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
         $this->load_markets();
         $prefix = '';
-        if ($type == 'market')
+        if ($type === 'market')
             $prefix = 'market_';
         if ($price === null)
             $price = 0;
@@ -228,7 +252,7 @@ class exmo extends Exchange {
         return $this->privatePostOrderCancel (array ( 'order_id' => $id ));
     }
 
-    public function withdraw ($currency, $amount, $address, $params = array ()) {
+    public function withdraw ($currency, $amount, $address, $tag = null, $params = array ()) {
         $this->load_markets();
         $result = $this->privatePostWithdrawCrypt (array_merge (array (
             'amount' => $amount,
@@ -243,7 +267,7 @@ class exmo extends Exchange {
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $url = $this->urls['api'] . '/' . $this->version . '/' . $path;
-        if ($api == 'public') {
+        if ($api === 'public') {
             if ($params)
                 $url .= '?' . $this->urlencode ($params);
         } else {
@@ -261,7 +285,7 @@ class exmo extends Exchange {
 
     public function request ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
         $response = $this->fetch2 ($path, $api, $method, $params, $headers, $body);
-        if (array_key_exists ('result', $response)) {
+        if (is_array ($response) && array_key_exists ('result', $response)) {
             if ($response['result'])
                 return $response;
             throw new ExchangeError ($this->id . ' ' . $this->json ($response));
@@ -269,5 +293,3 @@ class exmo extends Exchange {
         return $response;
     }
 }
-
-?>

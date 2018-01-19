@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
 
 from ccxt.base.exchange import Exchange
+
+# -----------------------------------------------------------------------------
+
+try:
+    basestring  # Python 3
+except NameError:
+    basestring = str  # Python 2
+
+
 import hashlib
+import json
 from ccxt.base.errors import ExchangeError
+from ccxt.base.errors import AuthenticationError
+from ccxt.base.errors import InvalidNonce
+from ccxt.base.errors import InsufficientFunds
+from ccxt.base.errors import InvalidOrder
 
 
 class bitbay (Exchange):
@@ -27,6 +41,7 @@ class bitbay (Exchange):
                     'https://bitbay.net/account/tab-api',
                     'https://github.com/BitBayNet/API',
                 ],
+                'fees': 'https://bitbay.net/en/fees',
             },
             'api': {
                 'public': {
@@ -53,27 +68,77 @@ class bitbay (Exchange):
                 },
             },
             'markets': {
-                'BTC/USD': {'id': 'BTCUSD', 'symbol': 'BTC/USD', 'base': 'BTC', 'quote': 'USD'},
-                'BTC/EUR': {'id': 'BTCEUR', 'symbol': 'BTC/EUR', 'base': 'BTC', 'quote': 'EUR'},
-                'BTC/PLN': {'id': 'BTCPLN', 'symbol': 'BTC/PLN', 'base': 'BTC', 'quote': 'PLN'},
-                'LTC/USD': {'id': 'LTCUSD', 'symbol': 'LTC/USD', 'base': 'LTC', 'quote': 'USD'},
-                'LTC/EUR': {'id': 'LTCEUR', 'symbol': 'LTC/EUR', 'base': 'LTC', 'quote': 'EUR'},
-                'LTC/PLN': {'id': 'LTCPLN', 'symbol': 'LTC/PLN', 'base': 'LTC', 'quote': 'PLN'},
-                'LTC/BTC': {'id': 'LTCBTC', 'symbol': 'LTC/BTC', 'base': 'LTC', 'quote': 'BTC'},
-                'ETH/USD': {'id': 'ETHUSD', 'symbol': 'ETH/USD', 'base': 'ETH', 'quote': 'USD'},
-                'ETH/EUR': {'id': 'ETHEUR', 'symbol': 'ETH/EUR', 'base': 'ETH', 'quote': 'EUR'},
-                'ETH/PLN': {'id': 'ETHPLN', 'symbol': 'ETH/PLN', 'base': 'ETH', 'quote': 'PLN'},
-                'ETH/BTC': {'id': 'ETHBTC', 'symbol': 'ETH/BTC', 'base': 'ETH', 'quote': 'BTC'},
-                'LSK/USD': {'id': 'LSKUSD', 'symbol': 'LSK/USD', 'base': 'LSK', 'quote': 'USD'},
-                'LSK/EUR': {'id': 'LSKEUR', 'symbol': 'LSK/EUR', 'base': 'LSK', 'quote': 'EUR'},
-                'LSK/PLN': {'id': 'LSKPLN', 'symbol': 'LSK/PLN', 'base': 'LSK', 'quote': 'PLN'},
-                'LSK/BTC': {'id': 'LSKBTC', 'symbol': 'LSK/BTC', 'base': 'LSK', 'quote': 'BTC'},
+                'BTC/USD': {'id': 'BTCUSD', 'symbol': 'BTC/USD', 'base': 'BTC', 'quote': 'USD', 'baseId': 'BTC', 'quoteId': 'USD'},
+                'BTC/EUR': {'id': 'BTCEUR', 'symbol': 'BTC/EUR', 'base': 'BTC', 'quote': 'EUR', 'baseId': 'BTC', 'quoteId': 'EUR'},
+                'BTC/PLN': {'id': 'BTCPLN', 'symbol': 'BTC/PLN', 'base': 'BTC', 'quote': 'PLN', 'baseId': 'BTC', 'quoteId': 'PLN'},
+                'LTC/USD': {'id': 'LTCUSD', 'symbol': 'LTC/USD', 'base': 'LTC', 'quote': 'USD', 'baseId': 'LTC', 'quoteId': 'USD'},
+                'LTC/EUR': {'id': 'LTCEUR', 'symbol': 'LTC/EUR', 'base': 'LTC', 'quote': 'EUR', 'baseId': 'LTC', 'quoteId': 'EUR'},
+                'LTC/PLN': {'id': 'LTCPLN', 'symbol': 'LTC/PLN', 'base': 'LTC', 'quote': 'PLN', 'baseId': 'LTC', 'quoteId': 'PLN'},
+                'LTC/BTC': {'id': 'LTCBTC', 'symbol': 'LTC/BTC', 'base': 'LTC', 'quote': 'BTC', 'baseId': 'LTC', 'quoteId': 'BTC'},
+                'ETH/USD': {'id': 'ETHUSD', 'symbol': 'ETH/USD', 'base': 'ETH', 'quote': 'USD', 'baseId': 'ETH', 'quoteId': 'USD'},
+                'ETH/EUR': {'id': 'ETHEUR', 'symbol': 'ETH/EUR', 'base': 'ETH', 'quote': 'EUR', 'baseId': 'ETH', 'quoteId': 'EUR'},
+                'ETH/PLN': {'id': 'ETHPLN', 'symbol': 'ETH/PLN', 'base': 'ETH', 'quote': 'PLN', 'baseId': 'ETH', 'quoteId': 'PLN'},
+                'ETH/BTC': {'id': 'ETHBTC', 'symbol': 'ETH/BTC', 'base': 'ETH', 'quote': 'BTC', 'baseId': 'ETH', 'quoteId': 'BTC'},
+                'LSK/USD': {'id': 'LSKUSD', 'symbol': 'LSK/USD', 'base': 'LSK', 'quote': 'USD', 'baseId': 'LSK', 'quoteId': 'USD'},
+                'LSK/EUR': {'id': 'LSKEUR', 'symbol': 'LSK/EUR', 'base': 'LSK', 'quote': 'EUR', 'baseId': 'LSK', 'quoteId': 'EUR'},
+                'LSK/PLN': {'id': 'LSKPLN', 'symbol': 'LSK/PLN', 'base': 'LSK', 'quote': 'PLN', 'baseId': 'LSK', 'quoteId': 'PLN'},
+                'LSK/BTC': {'id': 'LSKBTC', 'symbol': 'LSK/BTC', 'base': 'LSK', 'quote': 'BTC', 'baseId': 'LSK', 'quoteId': 'BTC'},
+                'BCH/USD': {'id': 'BCCUSD', 'symbol': 'BCH/USD', 'base': 'BCH', 'quote': 'USD', 'baseId': 'BCC', 'quoteId': 'USD'},
+                'BCH/EUR': {'id': 'BCCEUR', 'symbol': 'BCH/EUR', 'base': 'BCH', 'quote': 'EUR', 'baseId': 'BCC', 'quoteId': 'EUR'},
+                'BCH/PLN': {'id': 'BCCPLN', 'symbol': 'BCH/PLN', 'base': 'BCH', 'quote': 'PLN', 'baseId': 'BCC', 'quoteId': 'PLN'},
+                'BCH/BTC': {'id': 'BCCBTC', 'symbol': 'BCH/BTC', 'base': 'BCH', 'quote': 'BTC', 'baseId': 'BCC', 'quoteId': 'BTC'},
+                'BTG/USD': {'id': 'BTGUSD', 'symbol': 'BTG/USD', 'base': 'BTG', 'quote': 'USD', 'baseId': 'BTG', 'quoteId': 'USD'},
+                'BTG/EUR': {'id': 'BTGEUR', 'symbol': 'BTG/EUR', 'base': 'BTG', 'quote': 'EUR', 'baseId': 'BTG', 'quoteId': 'EUR'},
+                'BTG/PLN': {'id': 'BTGPLN', 'symbol': 'BTG/PLN', 'base': 'BTG', 'quote': 'PLN', 'baseId': 'BTG', 'quoteId': 'PLN'},
+                'BTG/BTC': {'id': 'BTGBTC', 'symbol': 'BTG/BTC', 'base': 'BTG', 'quote': 'BTC', 'baseId': 'BTG', 'quoteId': 'BTC'},
+                'DASH/USD': {'id': 'DASHUSD', 'symbol': 'DASH/USD', 'base': 'DASH', 'quote': 'USD', 'baseId': 'DASH', 'quoteId': 'USD'},
+                'DASH/EUR': {'id': 'DASHEUR', 'symbol': 'DASH/EUR', 'base': 'DASH', 'quote': 'EUR', 'baseId': 'DASH', 'quoteId': 'EUR'},
+                'DASH/PLN': {'id': 'DASHPLN', 'symbol': 'DASH/PLN', 'base': 'DASH', 'quote': 'PLN', 'baseId': 'DASH', 'quoteId': 'PLN'},
+                'DASH/BTC': {'id': 'DASHBTC', 'symbol': 'DASH/BTC', 'base': 'DASH', 'quote': 'BTC', 'baseId': 'DASH', 'quoteId': 'BTC'},
+                'GAME/USD': {'id': 'GAMEUSD', 'symbol': 'GAME/USD', 'base': 'GAME', 'quote': 'USD', 'baseId': 'GAME', 'quoteId': 'USD'},
+                'GAME/EUR': {'id': 'GAMEEUR', 'symbol': 'GAME/EUR', 'base': 'GAME', 'quote': 'EUR', 'baseId': 'GAME', 'quoteId': 'EUR'},
+                'GAME/PLN': {'id': 'GAMEPLN', 'symbol': 'GAME/PLN', 'base': 'GAME', 'quote': 'PLN', 'baseId': 'GAME', 'quoteId': 'PLN'},
+                'GAME/BTC': {'id': 'GAMEBTC', 'symbol': 'GAME/BTC', 'base': 'GAME', 'quote': 'BTC', 'baseId': 'GAME', 'quoteId': 'BTC'},
             },
             'fees': {
                 'trading': {
                     'maker': 0.3 / 100,
                     'taker': 0.0043,
                 },
+                'funding': {
+                    'withdraw': {
+                        'BTC': 0.0009,
+                        'LTC': 0.005,
+                        'ETH': 0.00126,
+                        'LSK': 0.2,
+                        'BCH': 0.0006,
+                        'GAME': 0.005,
+                        'DASH': 0.001,
+                        'BTG': 0.0008,
+                        'PLN': 4,
+                        'EUR': 1.5,
+                    },
+                },
+            },
+            'exceptions': {
+                '400': ExchangeError,  # At least one parameter wasn't set
+                '401': InvalidOrder,  # Invalid order type
+                '402': InvalidOrder,  # No orders with specified currencies
+                '403': InvalidOrder,  # Invalid payment currency name
+                '404': InvalidOrder,  # Error. Wrong transaction type
+                '405': InvalidOrder,  # Order with self id doesn't exist
+                '406': InsufficientFunds,  # No enough money or crypto
+                # code 407 not specified are not specified in their docs
+                '408': InvalidOrder,  # Invalid currency name
+                '501': AuthenticationError,  # Invalid public key
+                '502': AuthenticationError,  # Invalid sign
+                '503': InvalidNonce,  # Invalid moment parameter. Request time doesn't match current server time
+                '504': ExchangeError,  # Invalid method
+                '505': AuthenticationError,  # Key has no permission for self action
+                '506': AuthenticationError,  # Account locked. Please contact with customer service
+                # codes 507 and 508 are not specified in their docs
+                '509': ExchangeError,  # The BIC/SWIFT is required for self currency
+                '510': ExchangeError,  # Invalid market name
             },
         })
 
@@ -82,15 +147,17 @@ class bitbay (Exchange):
         if 'balances' in response:
             balance = response['balances']
             result = {'info': balance}
-            currencies = list(self.currencies.keys())
-            for i in range(0, len(currencies)):
-                currency = currencies[i]
+            codes = list(self.currencies.keys())
+            for i in range(0, len(codes)):
+                code = codes[i]
+                currency = self.currencies[code]
+                id = currency['id']
                 account = self.account()
-                if currency in balance:
-                    account['free'] = float(balance[currency]['available'])
-                    account['used'] = float(balance[currency]['locked'])
+                if id in balance:
+                    account['free'] = float(balance[id]['available'])
+                    account['used'] = float(balance[id]['locked'])
                     account['total'] = self.sum(account['free'], account['used'])
-                result[currency] = account
+                result[code] = account
             return self.parse_balance(result)
         raise ExchangeError(self.id + ' empty balance response ' + self.json(response))
 
@@ -154,9 +221,9 @@ class bitbay (Exchange):
         market = self.market(symbol)
         return self.privatePostTrade(self.extend({
             'type': side,
-            'currency': market['base'],
+            'currency': market['baseId'],
             'amount': amount,
-            'payment_currency': market['quote'],
+            'payment_currency': market['quoteId'],
             'rate': price,
         }, params))
 
@@ -173,14 +240,15 @@ class bitbay (Exchange):
             return True
         return False
 
-    def withdraw(self, currency, amount, address, params={}):
+    def withdraw(self, code, amount, address, tag=None, params={}):
         self.load_markets()
         method = None
+        currency = self.currency(code)
         request = {
-            'currency': currency,
+            'currency': currency['id'],
             'quantity': amount,
         }
-        if self.is_fiat(currency):
+        if self.is_fiat(code):
             method = 'privatePostWithdraw'
             # request['account'] = params['account']  # they demand an account number
             # request['express'] = params['express']  # whatever it means, they don't explain
@@ -210,3 +278,25 @@ class bitbay (Exchange):
                 'API-Hash': self.hmac(self.encode(body), self.encode(self.secret), hashlib.sha512),
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
+
+    def handle_errors(self, httpCode, reason, url, method, headers, body):
+        if (not isinstance(body, basestring)) or len((body) < 2):
+            return  # fallback to default error handler
+        if (body[0] == '{') or (body[0] == '['):
+            response = json.loads(body)
+            if 'code' in response:
+                #
+                # bitbay returns the integer 'success': 1 key from their private API
+                # or an integer 'code' value from 0 to 510 and an error message
+                #
+                #      {'success': 1, ...}
+                #      {'code': 502, 'message': 'Invalid sign'}
+                #      {'code': 0, 'message': 'offer funds not exceeding minimums'}
+                #
+                code = response['code']  # always an integer
+                feedback = self.id + ' ' + self.json(response)
+                exceptions = self.exceptions
+                if code in self.exceptions:
+                    raise exceptions[code](feedback)
+                else:
+                    raise ExchangeError(feedback)
