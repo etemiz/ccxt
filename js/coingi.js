@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 //  ---------------------------------------------------------------------------
 
@@ -8,15 +8,16 @@ const { ExchangeError } = require ('./base/errors');
 //  ---------------------------------------------------------------------------
 
 module.exports = class coingi extends Exchange {
-
     describe () {
         return this.deepExtend (super.describe (), {
             'id': 'coingi',
             'name': 'Coingi',
             'rateLimit': 1000,
             'countries': [ 'PA', 'BG', 'CN', 'US' ], // Panama, Bulgaria, China, US
-            'hasFetchTickers': true,
-            'hasCORS': false,
+            'has': {
+                'CORS': false,
+                'fetchTickers': true,
+            },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/28619707-5c9232a8-7212-11e7-86d6-98fe5d15cc6e.jpg',
                 'api': {
@@ -88,10 +89,8 @@ module.exports = class coingi extends Exchange {
         });
     }
 
-    async fetchMarkets () {
-        this.parseJsonResponse = false;
+    async fetchMarkets (params = {}) {
         let response = await this.wwwGet ();
-        this.parseJsonResponse = true;
         let parts = response.split ('do=currencyPairSelector-selectCurrencyPair" class="active">');
         let currencyParts = parts[1].split ('<div class="currency-pair-label">');
         let result = [];
@@ -107,19 +106,17 @@ module.exports = class coingi extends Exchange {
                 'amount': 8,
                 'price': 8,
             };
-            let lot = Math.pow (10, -precision['amount']);
             result.push ({
                 'id': id,
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
                 'info': id,
-                'lot': lot,
                 'active': true,
                 'precision': precision,
                 'limits': {
                     'amount': {
-                        'min': lot,
+                        'min': Math.pow (10, -precision['amount']),
                         'max': Math.pow (10, precision['amount']),
                     },
                     'price': {
@@ -163,14 +160,14 @@ module.exports = class coingi extends Exchange {
         return this.parseBalance (result);
     }
 
-    async fetchOrderBook (symbol, params = {}) {
+    async fetchOrderBook (symbol, limit = 512, params = {}) {
         await this.loadMarkets ();
         let market = this.market (symbol);
         let orderbook = await this.currentGetOrderBookPairAskCountBidCountDepth (this.extend ({
             'pair': market['id'],
-            'askCount': 512, // maximum returned number of asks 1-512
-            'bidCount': 512, // maximum returned number of bids 1-512
             'depth': 32, // maximum number of depth range steps 1-32
+            'askCount': limit, // maximum returned number of asks 1-512
+            'bidCount': limit, // maximum returned number of bids 1-512
         }, params));
         return this.parseOrderBook (orderbook, undefined, 'bids', 'asks', 'price', 'baseAmount');
     }
@@ -187,12 +184,14 @@ module.exports = class coingi extends Exchange {
             'high': ticker['high'],
             'low': ticker['low'],
             'bid': ticker['highestBid'],
+            'bidVolume': undefined,
             'ask': ticker['lowestAsk'],
+            'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
             'close': undefined,
-            'first': undefined,
             'last': undefined,
+            'previousClose': undefined,
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
@@ -260,7 +259,7 @@ module.exports = class coingi extends Exchange {
             'currencyPair': this.marketId (symbol),
             'volume': amount,
             'price': price,
-            'orderType': (side == 'buy') ? 0 : 1,
+            'orderType': (side === 'buy') ? 0 : 1,
         };
         let response = await this.userPostAddOrder (this.extend (order, params));
         return {
@@ -276,14 +275,14 @@ module.exports = class coingi extends Exchange {
 
     sign (path, api = 'current', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let url = this.urls['api'][api];
-        if (api != 'www') {
+        if (api !== 'www') {
             url += '/' + api + '/' + this.implodeParams (path, params);
         }
         let query = this.omit (params, this.extractParams (path));
-        if (api == 'current') {
+        if (api === 'current') {
             if (Object.keys (query).length)
                 url += '?' + this.urlencode (query);
-        } else if (api == 'user') {
+        } else if (api === 'user') {
             this.checkRequiredCredentials ();
             let nonce = this.nonce ();
             let request = this.extend ({
@@ -308,4 +307,4 @@ module.exports = class coingi extends Exchange {
         }
         return response;
     }
-}
+};

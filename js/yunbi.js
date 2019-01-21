@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 // ---------------------------------------------------------------------------
 
@@ -7,17 +7,18 @@ const acx = require ('./acx.js');
 // ---------------------------------------------------------------------------
 
 module.exports = class yunbi extends acx {
-
     describe () {
         return this.deepExtend (super.describe (), {
             'id': 'yunbi',
             'name': 'YUNBI',
-            'countries': 'CN',
+            'countries': [ 'CN' ],
             'rateLimit': 1000,
             'version': 'v2',
-            'hasCORS': false,
-            'hasFetchTickers': true,
-            'hasFetchOHLCV': true,
+            'has': {
+                'CORS': false,
+                'fetchTickers': true,
+                'fetchOHLCV': true,
+            },
             'timeframes': {
                 '1m': '1',
                 '5m': '5',
@@ -77,4 +78,4 @@ module.exports = class yunbi extends acx {
             },
         });
     }
-}
+};

@@ -15,14 +15,17 @@ If you want to submit an issue and you want your issue to be resolved quickly, h
   - [Authentication](https://github.com/ccxt-dev/ccxt/wiki/Manual#authentication)
   - [API Keys Setup](https://github.com/ccxt-dev/ccxt/wiki/Manual#api-keys-setup)
 - Read the [Troubleshooting](https://github.com/ccxt-dev/ccxt/wiki/Manual#troubleshooting) section and follow troubleshooting steps.
+- Read the [FAQ](https://github.com/ccxt/ccxt/wiki/FAQ) for most frequently asked questions.
 - Read the [API docs](https://github.com/ccxt-dev/ccxt/wiki/Exchange-Markets) for your exchange.
 - Search for similar issues first to avoid duplicates.
 - If your issue is unique, along with a basic description of the failure, the following **IS REQUIRED**:
-  - **set `.verbose = true` property on the exchange instance before calling its methods**
-  - **surround code and output with triple backticks: &#096;&#096;&#096;YOUR\_CODE&#096;&#096;&#096;**
+  - **set `exchange.verbose = true` property on the exchange instance before calling its functions or methods**
+  - **surround code and output with triple backticks: &#096;&#096;&#096;GOOD&#096;&#096;&#096;**
+  - don't confuse the backtick symbol (&#096;) with the quote symbol (\'): '''BAD'''
+  - don't confuse a single backtick with triple backticks: &#096;BAD&#096;
   - paste a complete code snippet you're having difficulties with, avoid one-liners
-  - paste the full stacktrace of that snippet in verbose mode as is, unchanged
-  - don't confuse the backtick symbol (&#096;) with the quote symbol (\'), &#096;&#096;&#096;GOOD&#096;&#096;&#096;, '''BAD'''
+  - paste the **full verbose output** of the failing method without your keys
+  - the verbose output should include the request and response from the exchange (not just an error callstack)
   - write your language **and version**
   - write ccxt library version
   - which exchange it is
@@ -30,15 +33,18 @@ If you want to submit an issue and you want your issue to be resolved quickly, h
 
 ## How To Contribute Code
 
-- **MAKE SURE YOUR CODE PASSES ALL SYNTAX CHECKS BY RUNNING `npm run build`**
 - **PLEASE, DO NOT COMMIT THE FOLLOWING FILES IN PULL REQUESTS:**
 
-  - `/doc/*`
-  - `/build/*`
+  - `/doc/*` (these files are generated from `/wiki/*`, place your edits there)
+  - `/build/*` (these are generated automatically)
   - `/php/*` (except for base classes)
   - `/python/*` (except for base classes)
 
-  These files are generated ([explained below](https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#transpiled-generated-files)) and will be overwritten upon build. Please don't commit them to avoid bloating the repository which is already quite large. Most often, you have to commit just one single source file to submit an edit to the implementation of an exchange.
+
+  These files are generated ([explained below](https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#multilanguage-support)) and will be overwritten upon build. Please don't commit them to avoid bloating the repository which is already quite large. Most often, you have to commit just one single source file to submit an edit to the implementation of an exchange.
+
+- **PLEASE, SUBMIT ATOMIC EDITS, ONE PULL REQUEST PER ONE EXCHANGE, DO NOT MIX THEM**
+- **MAKE SURE YOUR CODE PASSES ALL SYNTAX CHECKS BY RUNNING `npm run build`**
 
 ### Pending Tasks
 
@@ -47,9 +53,10 @@ Below is a list of functionality we would like to have implemented in the librar
 - Unified fetchOrder
 - Unified fetchOrders, fetchOpenOrders, fetchClosedOrders
 - Unified fetchMyTrades, fetchOrderTrades
-- Unified deposit methods
+- Unified fetchDepositAddress, createDepositAddress
+- Unified withdraw
 - Unified fees
-- Unified deposit and withdrawal transaction history
+- Unified fetchTransactions, fetchDeposits, fetchWithdrawals
 - Improved proxy support
 - WebSocket interfaces:
   - Pub: Methods for trading and private calls where supported
@@ -64,16 +71,27 @@ If your proposal, suggestion or improvement does not relate to the above list of
 4. portable (available in all supported languages)
 5. robust
 6. explicit in what it's doing
-7. doesn't break anything
+7. doesn't break anything (if you change a method, make sure that all other methods calling the edited method are not broken)
 
 The following is a set of rules for contributing to the ccxt library codebase.
 
 ### What You Need To Have
 
-- Node.js (version 8 or higher)
-- Python 2/3
-- PHP 5.3+
-- [Pandoc](https://pandoc.org/installing.html)
+- [Node.js](https://nodejs.org/en/download/) 8+
+- [Python](https://www.python.org/downloads/) 3.5.3+ and Python 2.7+
+  - tox (`brew install tox` or `pip install tox`)
+- [PHP](http://php.net/downloads.php) 5.3+ with the following extensions installed and enabled:
+  - cURL
+  - iconv
+  - mbstring
+  - PCRE
+  - bcmath (php<7.1)
+- [Pandoc](https://pandoc.org/installing.html) 1.19+
+
+Alternatively, you can use `docker` and `docker-compose` to install all dependencies in isolated environment:
+```
+  docker-compose run ccxt bash
+```
 
 ### What You Need To Know
 
@@ -87,9 +105,9 @@ The contents of the repository are structured as follows:
 /.eslintrc                 # linter
 /.gitattributes            # contains linguist settings for language detection in repo
 /.gitignore                # ignore it
-/.npmignore                # ignore it npm-style
+/.npmignore                # files to exclude from the NPM package
 /.travis.yml               # a YAML config for travis-ci (continuous integration)
-/CHANGELOG.md              # says itself
+/CHANGELOG.md              # self-explanatory
 /CONTRIBUTING.md           # this file
 /LICENSE.txt               # MIT
 /README.md                 # master markdown for GitHub, npmjs.com, npms.io, yarn and others
@@ -99,10 +117,9 @@ The contents of the repository are structured as follows:
 /doc/                      # Sphinx-generated rst-docs for http://ccxt.readthedocs.io/
 /js/                       # the JS version of the library
 /php/                      # PHP ccxt module/package folder
-/php/base/                 # base code for the PHP version of the ccxt library
 /python/                   # Python ccxt module/package folder for PyPI
 /python/__init__.py        # entry point for the Python version of the ccxt.library
-/python/async/__init__.py  # asynchronous version of the ccxt.library for Python 3.5+ asyncio
+/python/async/__init__.py  # asynchronous version of the ccxt.library for Python 3.5.3+ asyncio
 /python/base/              # base code for the Python version of the ccxt library
 /python/MANIFEST.in        # a PyPI-package file listing extra package files (license, configs, etc...)
 /python/README.rst         # generated reStructuredText for PyPI
@@ -114,6 +131,7 @@ The contents of the repository are structured as follows:
 /examples/js               # ...
 /examples/php              # ...
 /examples/py               # ...
+/exchanges.cfg             # custom bundle config for including only the exchanges you need
 /export-exchanges.js       # used to create tables of exchanges in the docs during the build
 /package.json              # npm package file, also used in setup.py for version single-sourcing
 /run-tests.js              # a front-end to run invididual tests of all exchanges in all languages (JS/PHP/Python)
@@ -131,7 +149,7 @@ At first, all language-specific versions were developed in parallel, but separat
 
 The module entry points are:
 - `./python/__init__.py` for the Python pip package
-- `./python/async/__init__.py` for the Python 3.5+ ccxt.async subpackage
+- `./python/async/__init__.py` for the Python 3.5.3+ ccxt.async_support subpackage
 - `./ccxt.js` for the Node.js npm package
 - `./build/ccxt.browser.js` for the browser bundle
 - `./ccxt.php` for PHP
@@ -181,7 +199,7 @@ These PHP base classes and files are not transpiled:
 #### Derived Exchange Classes
 
 Transpiler is regex-based and heavily relies on specific formatting rules. If you break them then the transpiler will either
-fail to generate Python/PHP classes at all or generate malformed Python/PHP syntax.
+fail to generate Python/PHP classes at all or will generate malformed Python/PHP syntax.
 
 Below are key notes on how to keep the JS code transpileable.
 
@@ -211,49 +229,56 @@ If the transpiling process finishes successfully, but generates incorrect Python
 And structurally:
 
 - if you need another base method you will have to implement it in all three languages
+- do not issue more than one HTTP request from a unified method
 - try to reduce syntax to basic one-liner expressions
 - multiple lines are ok, but you should avoid deep nesting with lots of brackets
+- avoid changing the contents of the arguments and params passed by reference into function calls
 - do not use conditional statements that are too complex (heavy if-bracketing)
 - do not use heavy ternary conditionals
 - avoid operators clutter (**don't do this**: `a && b || c ? d + 80 : e ** f`)
+- do not use `.includes()`, use `.indexOf()` instead!
+- never use `.toString()` on floats: `Number (0.00000001).toString () === '1e-8'`
+- do not use the `in` operator to check if a value is in a non-associative array (list)
+- don't add custom currency or symbol/pair conversions and formatting, copy from existing code instead
+- **don't access non-existent keys, `array['key'] || {}` won't work in other languages!**
 - keep it simple, don't do more than one statement in one line
 
 **If you want to add (support for) another exchange, or implement a new method for a particular exchange, then the best way to make it a consistent improvement is to learn from example. Take a look at how same things are implemented in other exchanges and try to copy the code flow and style.**
 
 The basic JSON-skeleton for a new exchange integration is as follows:
 
-```JSON
+```
 {
-   "id": "example",
-   "name": "Example Exchange",
-   "country": [ "US", "EU", "CN", "RU" ],
-   "rateLimit": 1000,
-   "version": "1",
-   "comment": "This comment is optional",
-   "urls": {
-      "logo": "https://example.com/image.jpg",
-      "api": "https://api.example.com/api",
-      "www": "https://www.example.com",
-      "doc": [
-         "https://www.example.com/docs/api",
-         "https://www.example.com/docs/howto",
-         "https://github.com/example/docs"
-      ]
+   'id': 'example',
+   'name': 'Example Exchange',
+   'country': [ 'US', 'EU', 'CN', 'RU' ],
+   'rateLimit': 1000,
+   'version': '1',
+   'comment': 'This comment is optional',
+   'urls': {
+      'logo': 'https://example.com/image.jpg',
+      'api': 'https://api.example.com/api',
+      'www': 'https://www.example.com',
+      'doc': [
+         'https://www.example.com/docs/api',
+         'https://www.example.com/docs/howto',
+         'https://github.com/example/docs',
+      ],
    },
-   "api": {
-      "public": {
-         "get": [
-            "endpoint/example",
-            "orderbook/{pair}/full",
-            "{pair}/ticker"
-         ]
+   'api': {
+      'public': {
+         'get': [
+            'endpoint/example',
+            'orderbook/{pair}/full',
+            '{pair}/ticker',
+         ],
       },
-      "private": {
-         "post": [
-            "balance"
-         ]
-      }
-   }
+      'private': {
+         'post': [
+            'balance',
+         ],
+      },
+   },
 }
 ```
 
@@ -261,9 +286,10 @@ The basic JSON-skeleton for a new exchange integration is as follows:
 
 In the code for each exchange, you'll notice that the functions that make API requests aren't explicitly defined. This is because the `api` definition in the exchange description JSON is used to create *magic functions* (aka *partial functions* or *closures*) inside the exchange subclass. That implicit injection is done by the `defineRestApi/define_rest_api` base exchange method.
 
-Each partial function takes a dictionary of `params` and returns the API response. In the example JSON above, the `'endpoint/example'` results in the injection of a `this.publicGetEndpointExample` function. Similarly, the `'orderbook/{pair}/full'` results in a `this.publicGetOrderbookPairFull` function, that takes a ``pair`` parameter.
+Each partial function takes a dictionary of `params` and returns the API response. In the example JSON above, the `'endpoint/example'` results in the injection of a `this.publicGetEndpointExample` function. Similarly, the `'orderbook/{pair}/full'` results in a `this.publicGetOrderbookPairFull` function, that takes a ``pair`` parameter (again, passed in the `params` argument).
 
-Upon instantiation the base exchange class takes each URL from its list of endpoints, splits it into words, and then makes up a callable function name from those words by using a partial construct. That process is the same in JS and PHP as well. It is also described here:
+Upon instantiation the base exchange class takes each URL from its list of endpoints, splits it into words, and then makes up a callable function name from those words by using a partial construct. That process is the same in JS, Python and PHP as well. It is also described here:
+
 - https://github.com/ccxt/ccxt/wiki/Manual#api-methods--endpoints
 - https://github.com/ccxt/ccxt/wiki/Manual#implicit-api-methods
 - https://github.com/ccxt-dev/ccxt/wiki/Manual#api-method-naming-conventions
@@ -276,7 +302,7 @@ Builds are automated with [Travis CI](https://travis-ci.org/ccxt/ccxt). The buil
 
 Windows builds are automated with [Appveyor](https://ci.appveyor.com/project/ccxt/ccxt). The build steps for Appveyor are in the [`appveyor.yml`](https://github.com/ccxt/ccxt/blob/master/appveyor.yml) file.
 
-Incoming pull requests are automatically validated by the CI service. You can watch the build process online here: [travis-ci.org/ccxt-dev/ccxt/builds](https://travis-ci.org/ccxt-dev/ccxt/builds).
+Incoming pull requests are automatically validated by the CI service. You can watch the build process online here: [travis-ci.org/ccxt/ccxt/builds](https://travis-ci.org/ccxt/ccxt/builds).
 
 #### How To Build & Run Tests On Your Local Machine
 
@@ -318,3 +344,44 @@ node run-tests --python3 kraken # test Kraken with Python 3, requires 'npm run b
 ```
 
 ```UNDER CONSTRUCTION```
+
+## Financial contributions
+
+We also welcome financial contributions in full transparency on our [open collective](https://opencollective.com/ccxt).
+Anyone can file an expense. If the expense makes sense for the development of the community, it will be "merged" in the ledger of our open collective by the core contributors and the person who filed the expense will be reimbursed.
+
+```
+ETH 0x26a3CB49578F07000575405a57888681249c35Fd (ETH only!)
+BTC 33RmVRfhK2WZVQR1R83h2e9yXoqRNDvJva
+BCH 1GN9p233TvNcNQFthCgfiHUnj5JRKEc2Ze
+LTC LbT8mkAqQBphc4yxLXEDgYDfEax74et3bP
+```
+
+## Credits
+
+### Contributors
+
+Thank you to all the people who have already contributed to ccxt!
+
+<a href="graphs/contributors"><img src="https://opencollective.com/ccxt/contributors.svg?width=890" /></a>
+
+### Backers
+
+Thank you to all our backers! [[Become a backer](https://opencollective.com/ccxt#backer)]
+
+<a href="https://opencollective.com/ccxt#backers" target="_blank"><img src="https://opencollective.com/ccxt/backers.svg?width=890"></a>
+
+### Sponsors
+
+Thank you to all our sponsors! (please ask your company to also support this open source project by [becoming a sponsor](https://opencollective.com/ccxt#sponsor))
+
+<a href="https://opencollective.com/ccxt/sponsor/0/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/0/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/1/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/1/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/2/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/2/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/3/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/3/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/4/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/4/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/5/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/5/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/6/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/6/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/7/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/7/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/8/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/8/avatar.svg"></a>
+<a href="https://opencollective.com/ccxt/sponsor/9/website" target="_blank"><img src="https://opencollective.com/ccxt/sponsor/9/avatar.svg"></a>
